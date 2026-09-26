@@ -1,0 +1,14 @@
+{
+    "serial": {
+        "port": "COM7",
+        "baudrate": 115200
+    },
+    "tools": {
+        "gcov_executable": "xtensa-esp32s3-elf-gcov"
+    },
+    "directories": {
+        "output_gcda": "output_gcda",
+        "report_dir": "report_coverage",
+        "build_dir": "test/test_app/build"
+    }
+}

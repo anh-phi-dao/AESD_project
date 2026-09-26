@@ -1,0 +1,2 @@
+source D:/ESP32/Tuna_AESD/Tuna_AESD/build/gdbinit/symbols
+source D:/ESP32/Tuna_AESD/Tuna_AESD/build/gdbinit/connect
