@@ -1,3 +1,7 @@
 {
-    "idf.currentSetup": "C:/Espressif/frameworks/esp-idf-v5.4.2/"
+    "idf.currentSetup": "C:/Espressif/frameworks/esp-idf-v5.4.2/",
+    "idf.openOcdConfigs": [
+        "board/esp32s3-bridge.cfg"
+    ],
+    "idf.customExtraVars": {}
 }
