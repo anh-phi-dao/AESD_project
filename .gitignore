@@ -1,0 +1,13 @@
+# ESP-IDF Build directories and outputs
+/build/
+**/build/
+sdkconfig.old
+sdkconfig.defaults.*
+
+# Visual Studio Code workspace settings
+.vscode/
+*.code-workspace
+
+# Python virtual environments
+dependencies/
+managed_components/
