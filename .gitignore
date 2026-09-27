@@ -1,0 +1,14 @@
+# Build output
+build/
+
+# Local developer settings (scripts/generate_config.py)
+scripts/config.json
+
+# Device credentials and images generated from them (scripts/provision_device.py)
+config/*.csv
+!config/*.csv.example
+config/*.bin
+config/certs/
+
+# Python bytecode
+__pycache__/

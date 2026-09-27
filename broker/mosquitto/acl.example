@@ -1,0 +1,22 @@
+# Copy to "acl" and repeat each block per door. Web accounts are view-only:
+# they may publish history/req and voice/in, nothing else. There is no unlock topic.
+
+# ---- Device account (firmware of lock/door01) ----
+user door01
+topic write lock/door01/status
+topic write lock/door01/event
+topic write lock/door01/alert
+topic write lock/door01/history/resp
+topic write lock/door01/voice/out
+topic read  lock/door01/history/req
+topic read  lock/door01/voice/in
+
+# ---- Household account (web page) ----
+user owner_door01
+topic read  lock/door01/status
+topic read  lock/door01/event
+topic read  lock/door01/alert
+topic read  lock/door01/history/resp
+topic read  lock/door01/voice/out
+topic write lock/door01/history/req
+topic write lock/door01/voice/in
