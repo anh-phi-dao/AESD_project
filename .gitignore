@@ -1,5 +1,17 @@
-# Build output
-build/
+# ESP-IDF build directories and outputs
+/build/
+**/build/
+sdkconfig.old
+sdkconfig.defaults.*
+
+# Visual Studio Code workspace settings
+.vscode/
+*.code-workspace
+
+# Python virtual environments
+dependencies/
+managed_components/
+__pycache__/
 
 # Local developer settings (scripts/generate_config.py)
 scripts/config.json
@@ -9,6 +21,3 @@ config/*.csv
 !config/*.csv.example
 config/*.bin
 config/certs/
-
-# Python bytecode
-__pycache__/
