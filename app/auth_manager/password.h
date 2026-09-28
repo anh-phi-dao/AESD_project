@@ -7,6 +7,7 @@
 #include "app_err.h"
 #include "esp_log.h"
 #include "keypad.h"
+#define PASSWORD_DEBUG_TAG  "AUTHEN_PASSWORD"
 #define MAX_PASSWORD_LENGTH 32
 
 struct password_config

@@ -20,7 +20,8 @@ app_err_t init_device_password(password_config_t *device_password, uint16_t leng
 
 uint8_t fill_password(keypad_state_t *p_state, password_config_t *device_password)
 {
-    char key = 0;
+    char    key    = 0;
+    uint8_t status = AUTHEN_NONE;
     for (uint8_t key_index = 0U; key_index < (KEYPAD_MAX_ROW_COUNT * KEYPAD_MAX_COLUMN_COUNT); key_index++)
     {
         if ((p_state->pressed_keys & (uint16_t)(1U << key_index)) != 0U)
@@ -29,24 +30,39 @@ uint8_t fill_password(keypad_state_t *p_state, password_config_t *device_passwor
             break;
         }
     }
+    if (!key)
+    {
+        return AUTHEN_NONE;
+    }
+#ifdef DEBUG_PASSWORD
+    ESP_LOGI(PASSWORD_DEBUG_TAG, "key mapped :%c", key);
+#endif
     device_password->input_password[device_password->current_index] = key;
+#ifdef DEBUG_PASSWORD
+    ESP_LOGI(PASSWORD_DEBUG_TAG,
+             "current input key with index %d :%c",
+             device_password->current_index,
+             device_password->input_password[device_password->current_index]);
+#endif
     device_password->current_index++;
     if (device_password->current_index >= device_password->length)
     {
+#ifdef DEBUG_PASSWORD
         ESP_LOGI("fill_password", "Reset input password");
+#endif
         device_password->current_index = 0;
-        memset(device_password->input_password, 0, strlen(device_password->input_password));
         if (!strncmp(device_password->password, device_password->input_password, device_password->length))
         {
-            return AUTHEN_SUCCESS;
+            status = AUTHEN_SUCCESS;
         }
         else
         {
-            return AUTHEN_FAILED;
+            status = AUTHEN_FAILED;
         }
+        memset(device_password->input_password, 0, strlen(device_password->input_password));
     }
 
-    return AUTHEN_NONE;
+    return status;
 }
 
 app_err_t deinit_device_password(password_config_t *device_password)
