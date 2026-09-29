@@ -32,7 +32,7 @@
 #define PCF_I2C_GLITCH 7U
 #define PCF_I2C_PULLUP true
 
-password_config_t pass_cfg;
+password_handle_t pass_cfg;
 
 /***********************************************************************************************************************
  * Private functions

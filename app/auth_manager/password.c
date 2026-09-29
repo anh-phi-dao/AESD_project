@@ -1,7 +1,7 @@
 
 #include "password.h"
 
-app_err_t init_device_password(password_config_t *device_password, uint16_t length, const char *init_password)
+app_err_t init_device_password(password_handle_t *device_password, uint16_t length, const char *init_password)
 {
     if (length < 1 || length > MAX_PASSWORD_LENGTH)
     {
@@ -18,7 +18,7 @@ app_err_t init_device_password(password_config_t *device_password, uint16_t leng
     return APP_SUCCESS;
 }
 
-uint8_t fill_password(keypad_state_t *p_state, password_config_t *device_password)
+uint8_t fill_password(keypad_state_t *p_state, password_handle_t *device_password)
 {
     char    key    = 0;
     uint8_t status = AUTHEN_NONE;
@@ -65,7 +65,7 @@ uint8_t fill_password(keypad_state_t *p_state, password_config_t *device_passwor
     return status;
 }
 
-app_err_t deinit_device_password(password_config_t *device_password)
+app_err_t deinit_device_password(password_handle_t *device_password)
 {
     if (device_password->length > 0)
     {
