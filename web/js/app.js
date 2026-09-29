@@ -1,3 +1,4 @@
+import config from '../config.js';
 import { LockClient } from './lock-client.js';
 import { VoiceRecorder } from './voice.js';
 
@@ -67,7 +68,7 @@ function save(data) {
 
 const form = $('login-form');
 const submitBtn = form.querySelector('button[type=submit]');
-const saved = loadSaved();
+const saved = { url: config.brokerUrl, deviceId: config.deviceId, ...loadSaved() };
 for (const key of ['url', 'deviceId', 'username']) if (saved[key]) form.elements[key].value = saved[key];
 
 form.addEventListener('submit', async (e) => {
@@ -264,3 +265,10 @@ recordBtn.addEventListener('click', async () => {
     recordBtn.disabled = false;
   }
 });
+
+// ---------- install as app ----------
+
+// Service workers need HTTPS (or localhost); plain-HTTP LAN tests simply skip this.
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker', err));
+}

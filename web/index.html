@@ -3,9 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- blob: workers are mqtt.js keep-alive timers; blob: media is received voice. Update sw.js when the mqtt.js version changes. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; connect-src 'self' ws: wss:; worker-src 'self' blob:; media-src 'self' blob:; img-src 'self' data:; style-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#2459d6">
   <title>Smart Lock</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.16.0/dist/mqtt.min.js"
+          integrity="sha384-9WWboT9UtuPFRlOLq4FygQkcJxzYcpz8SXGkNyCEXM+44n14xzjNlrRKYZwuF/A6"
+          crossorigin="anonymous"></script>
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
