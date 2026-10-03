@@ -1,4 +1,4 @@
-# ESP-IDF Build directories and outputs
+# ESP-IDF build directories and outputs
 /build/
 **/build/
 sdkconfig.old
@@ -11,3 +11,13 @@ sdkconfig.defaults.*
 # Python virtual environments
 dependencies/
 managed_components/
+__pycache__/
+
+# Local developer settings (scripts/generate_config.py)
+scripts/config.json
+
+# Device credentials and images generated from them (scripts/provision_device.py)
+config/*.csv
+!config/*.csv.example
+config/*.bin
+config/certs/

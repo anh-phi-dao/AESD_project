@@ -1,0 +1,9 @@
+# Project defaults. sdkconfig is generated from this file; edit here, then delete sdkconfig and rebuild.
+CONFIG_IDF_TARGET="esp32s3"
+
+# 4 MB is the smallest ESP32-S3 module; raise it if your module has more flash.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Adds the devcfg partition for device credentials and a 3 MB app slot.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"

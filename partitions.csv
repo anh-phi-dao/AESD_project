@@ -1,0 +1,7 @@
+# Name,   Type, SubType, Offset,   Size
+# nvs:    Wi-Fi driver data and user data (PINs, cards). Never overwritten by provisioning.
+nvs,      data, nvs,     0x9000,   0x6000
+phy_init, data, phy,     0xf000,   0x1000
+# devcfg: per-device credentials written by scripts/provision_device.py. See docs/provisioning.md.
+devcfg,   data, nvs,     0x10000,  0x6000
+factory,  app,  factory, 0x20000,  0x300000

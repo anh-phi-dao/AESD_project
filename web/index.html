@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- blob: workers are mqtt.js keep-alive timers; blob: media is received voice. Update sw.js when the mqtt.js version changes. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; connect-src 'self' ws: wss:; worker-src 'self' blob:; media-src 'self' blob:; img-src 'self' data:; style-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#2459d6">
+  <title>Smart Lock</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.16.0/dist/mqtt.min.js"
+          integrity="sha384-9WWboT9UtuPFRlOLq4FygQkcJxzYcpz8SXGkNyCEXM+44n14xzjNlrRKYZwuF/A6"
+          crossorigin="anonymous"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Smart Lock</h1>
+    <div class="topbar-right" id="session" hidden>
+      <span class="pill" id="device-status" data-state="unknown">Thiết bị: chưa rõ</span>
+      <span class="pill" id="conn-status" data-state="offline">Đang kết nối…</span>
+      <button type="button" class="btn-ghost" id="logout">Đăng xuất</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="card login" id="login-view">
+      <h2>Đăng nhập</h2>
+      <p class="hint">Chế độ chỉ xem: xem lịch sử, nhận cảnh báo và tin nhắn thoại. Không thể mở cửa từ ứng dụng.</p>
+      <form id="login-form" autocomplete="on">
+        <label>Broker (WebSocket)
+          <input name="url" type="url" required placeholder="wss://broker.example.com:8884/mqtt">
+        </label>
+        <label>Mã thiết bị
+          <input name="deviceId" required pattern="[A-Za-z0-9_\-]{1,32}" placeholder="door01">
+        </label>
+        <label>Tài khoản
+          <input name="username" required autocomplete="username">
+        </label>
+        <label>Mật khẩu
+          <input name="password" type="password" required autocomplete="current-password">
+        </label>
+        <label class="check"><input name="remember" type="checkbox" checked> Nhớ broker, mã thiết bị và tài khoản (không lưu mật khẩu)</label>
+        <button type="submit" class="btn">Kết nối</button>
+        <p class="error" id="login-error" role="alert"></p>
+      </form>
+    </section>
+
+    <div class="grid" id="dashboard" hidden>
+      <section class="card">
+        <div class="card-head">
+          <h2>Cảnh báo</h2>
+          <button type="button" class="btn-ghost" id="enable-notify">Bật thông báo trình duyệt</button>
+        </div>
+        <ul class="list" id="alerts"><li class="empty">Chưa có cảnh báo.</li></ul>
+      </section>
+
+      <section class="card">
+        <h2>Hoạt động mới</h2>
+        <ul class="list" id="live"><li class="empty">Chưa có hoạt động từ khi mở trang.</li></ul>
+      </section>
+
+      <section class="card wide">
+        <div class="card-head">
+          <h2>Lịch sử ra vào</h2>
+          <button type="button" class="btn-ghost" id="history-refresh">Tải lại</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Thời gian</th><th>Người</th><th>Phương thức</th><th>Kết quả</th></tr></thead>
+            <tbody id="history"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="history-status"></p>
+        <button type="button" class="btn-ghost" id="history-more" hidden>Xem thêm</button>
+      </section>
+
+      <section class="card wide">
+        <h2>Tin nhắn thoại</h2>
+        <div class="voice-send">
+          <button type="button" class="btn" id="record">Ghi âm gửi tới cửa</button>
+          <span class="hint" id="record-status">Tối đa 15 giây.</span>
+        </div>
+        <ul class="list" id="voices"><li class="empty">Chưa có tin nhắn thoại.</li></ul>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
