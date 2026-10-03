@@ -80,6 +80,23 @@ esp_err_t inm441_i2s_mic_start_recording(void)
     return ESP_OK;
 }
 
+esp_err_t inm441_i2s_mic_stop_recording(void)
+{
+    if (!g_mic_ctx.recording)
+    {
+        return ESP_OK;
+    }
+
+    if (g_mic_ctx.rx_handle)
+    {
+        ESP_RETURN_ON_ERROR(i2s_channel_disable(g_mic_ctx.rx_handle), TAG, "Failed to disable RX channel");
+    }
+
+    g_mic_ctx.recording = false;
+    ESP_LOGI(TAG, "Recording stopped");
+    return ESP_OK;
+}
+
 esp_err_t inm441_i2s_mic_read(void *buffer, size_t buffer_size, size_t *bytes_read, uint32_t timeout_ms)
 {
     if (!buffer || !bytes_read || buffer_size == 0)
