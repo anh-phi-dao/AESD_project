@@ -39,11 +39,12 @@ menu "Door simulator (dev board)"
 
 config DOOR_SIM_ENABLE
     bool "Simulate lock activity without keypad, NFC or sensors"
-    default y
+    default n
     help
         Creates access events and alerts from the BOOT button and the "sim" serial console command, through the
         same event log the real lock logic will use, so MQTT and the web page can be tested on a bare ESP32-S3.
-        Nothing from the network can trigger it. Disable on the product board.
+        Nothing from the network can trigger it. Off by default: enable only on a dev board, and do not commit
+        sdkconfig with it enabled.
 
 config DOOR_SIM_BUTTON_GPIO
     int "Simulator button GPIO (active low)"
