@@ -18,7 +18,7 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 | Trang web chỉ xem (`web/`) | Xong: trạng thái online/offline, lịch sử, cảnh báo (banner + âm báo, báo cả cảnh báo lỡ khi đóng trang), tin nhắn thoại |
 | Lịch sử gần nhất (`app/event_log`) | Xong: 20 sự kiện + 10 cảnh báo, lưu NVS, giữ qua khởi động lại. Log đầy đủ chờ thẻ SD |
 | Cầu nối MQTT (`app/remote_service`) | Xong: `event`, `alert`, `recent` (retained, xem được khi khóa offline), trả lời `history/req` |
-| Giả lập phần cứng (`app/door_sim`) | Xong, **chỉ cho board dev**: nút BOOT + lệnh `sim` trên serial |
+| Giả lập phần cứng (`app/door_sim`) | Xong, **chỉ cho board dev, tắt mặc định**: nút BOOT + lệnh `sim` trên serial |
 | Telegram bot | Chưa làm |
 | Lưu log ra vào lên thẻ SD | Chưa làm |
 | Tin nhắn thoại trên firmware (INMP441, loa) | Chưa làm; web đã sẵn sàng |
@@ -152,7 +152,13 @@ Vào `http://localhost:8000` rồi đăng nhập:
 
 ### Kịch bản trình diễn
 
-Board dev không có keypad/NFC thì dùng **bộ giả lập** (`app/door_sim`, bật sẵn bằng `CONFIG_DOOR_SIM_ENABLE`).
+Board dev không có keypad/NFC thì dùng **bộ giả lập** (`app/door_sim`). Bộ giả lập **tắt mặc định** để firmware
+chính không có nó. Bật trên board dev:
+```sh
+idf.py menuconfig      # Door simulator (dev board) -> bật "Simulate lock activity..."
+idf.py -p COM5 flash monitor
+```
+`menuconfig` ghi vào `sdkconfig`: **đừng commit `sdkconfig` khi đang bật giả lập**.
 Nó ghi vào cùng `event_log` mà `lock_service` sẽ dùng, nên luồng MQTT và web chạy y như khi có phần cứng.
 Bộ giả lập chỉ nhận lệnh tại chỗ, **không có lệnh nào qua mạng**.
 

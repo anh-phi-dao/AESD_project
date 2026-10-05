@@ -58,7 +58,7 @@ Tất cả lệnh chạy trong ESP-IDF PowerShell, tại thư mục gốc repo.
    ```
    Vào `http://localhost:8000`, đăng nhập bằng tài khoản web với URL `wss://` của broker.
    Trạng thái hiện **Khóa: trực tuyến**; rút nguồn board thì sau khoảng 45 giây chuyển sang **ngoại tuyến**
-   (Last Will). Lịch sử trống cho đến khi có sự kiện: trên board dev, nhấn nút BOOT hoặc gõ `sim seed 10`
+   (Last Will). Lịch sử trống cho đến khi có sự kiện: trên board dev, bật bộ giả lập rồi nhấn nút BOOT hoặc gõ `sim seed 10`
    trong monitor (xem mục "Kịch bản trình diễn" trong README).
    Để dùng từ xa qua Internet, xem [deploy_web.md](deploy_web.md).
 
