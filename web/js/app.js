@@ -3,8 +3,11 @@ import { LockClient } from './lock-client.js';
 import { VoiceRecorder } from './voice.js';
 
 const STORE_KEY = 'smartlock.login';
+// Last alert the user acknowledged, per lock: { deviceId, gen, id }. Only ids are stored, never alert content.
+const SEEN_KEY = 'smartlock.seenAlert';
 const LIVE_MAX = 30;
 const ALERT_MAX = 30;
+const TITLE = document.title;
 
 const METHOD_LABEL = { pin: 'Mã PIN', nfc: 'Thẻ NFC', button: 'Nút bên trong', key: 'Chìa cơ' };
 const ALERT_LABEL = {
@@ -24,8 +27,16 @@ const CONN_LABEL = {
 
 const $ = (id) => document.getElementById(id);
 let client = null;
-let oldestHistoryId = null;
+let deviceId = '';
 let recorder = null;
+
+// History table = retained "recent" snapshot + pages fetched with history/req + live events, keyed by id.
+const historyById = new Map();
+const alertsById = new Map();
+let recentEvents = [];     // events of the latest snapshot, used to refill the table on "Tải lại"
+let gen = null;            // generation of the lock's log; changes when the log is cleared on the lock
+let historyEpoch = 0;      // bumped on clear, so a history page requested before the clear is ignored
+let missedChecked = false; // the "missed alerts" check runs once per session, on the first snapshot
 
 // ---------- helpers ----------
 
@@ -40,6 +51,7 @@ function el(tag, props = {}, ...children) {
 const fmtTime = (ts) => new Date(ts * 1000).toLocaleString('vi-VN');
 const methodLabel = (m) => METHOD_LABEL[m] ?? m;
 const resultLabel = (r) => (r === 'granted' ? 'Mở thành công' : 'Bị từ chối');
+const emptyItem = (text) => el('li', { className: 'empty', textContent: text });
 
 function prepend(list, node, max) {
   list.querySelector('.empty')?.remove();
@@ -47,18 +59,18 @@ function prepend(list, node, max) {
   while (list.children.length > max) list.lastElementChild.remove();
 }
 
-function loadSaved() {
+function loadJson(key) {
   try {
-    return JSON.parse(localStorage.getItem(STORE_KEY)) ?? {};
+    return JSON.parse(localStorage.getItem(key));
   } catch {
-    return {};
+    return null;
   }
 }
 
-function save(data) {
+function saveJson(key, data) {
   try {
-    if (data) localStorage.setItem(STORE_KEY, JSON.stringify(data));
-    else localStorage.removeItem(STORE_KEY);
+    if (data) localStorage.setItem(key, JSON.stringify(data));
+    else localStorage.removeItem(key);
   } catch {
     /* storage unavailable: nothing to remember */
   }
@@ -68,7 +80,7 @@ function save(data) {
 
 const form = $('login-form');
 const submitBtn = form.querySelector('button[type=submit]');
-const saved = { url: config.brokerUrl, deviceId: config.deviceId, ...loadSaved() };
+const saved = { url: config.brokerUrl, deviceId: config.deviceId, ...(loadJson(STORE_KEY) ?? {}) };
 for (const key of ['url', 'deviceId', 'username']) if (saved[key]) form.elements[key].value = saved[key];
 
 form.addEventListener('submit', async (e) => {
@@ -79,10 +91,12 @@ form.addEventListener('submit', async (e) => {
   submitBtn.disabled = true;
 
   try {
+    resetSession();
+    deviceId = opts.deviceId;
     client = new LockClient(opts);
     wireClient(client);
     await client.connect();
-    save(f.remember.checked ? { url: opts.url, deviceId: opts.deviceId, username: opts.username } : null);
+    saveJson(STORE_KEY, f.remember.checked ? { url: opts.url, deviceId: opts.deviceId, username: opts.username } : null);
     f.password.value = '';
     showDashboard(true);
     loadHistory(true);
@@ -101,15 +115,28 @@ $('logout').addEventListener('click', async () => {
   showDashboard(false);
 });
 
+function resetSession() {
+  historyById.clear();
+  alertsById.clear();
+  recentEvents = [];
+  gen = null;
+  historyEpoch++;
+  missedChecked = false;
+  clearAlarm();
+}
+
 function showDashboard(on) {
   $('login-view').hidden = on;
   $('dashboard').hidden = !on;
   $('session').hidden = !on;
   if (!on) {
+    resetSession();
     $('history').replaceChildren();
-    $('live').replaceChildren(el('li', { className: 'empty', textContent: 'Chưa có hoạt động từ khi mở trang.' }));
-    $('alerts').replaceChildren(el('li', { className: 'empty', textContent: 'Chưa có cảnh báo.' }));
-    $('voices').replaceChildren(el('li', { className: 'empty', textContent: 'Chưa có tin nhắn thoại.' }));
+    $('history-status').textContent = '';
+    $('history-more').hidden = true;
+    $('live').replaceChildren(emptyItem('Chưa có hoạt động từ khi mở trang.'));
+    $('alerts').replaceChildren(emptyItem('Chưa có cảnh báo.'));
+    $('voices').replaceChildren(emptyItem('Chưa có tin nhắn thoại.'));
     setPill($('device-status'), 'unknown', 'Thiết bị: chưa rõ');
   }
 }
@@ -141,22 +168,19 @@ function wireClient(c) {
         el('time', { textContent: fmtTime(x.ts) })),
       LIVE_MAX,
     );
-    // Newest entries also belong at the top of the history table.
-    if ($('history').children.length) $('history').prepend(historyRow(x));
+    historyById.set(x.id, x);
+    renderHistory();
   });
   c.addEventListener('alert', (e) => {
     const a = e.detail.alert;
-    const title = ALERT_LABEL[a.code] ?? a.code;
-    prepend(
-      $('alerts'),
-      el('li', { className: `alert-${a.level}` },
-        el('strong', { textContent: title }),
-        a.msg ? ` · ${a.msg}` : '',
-        el('time', { textContent: fmtTime(a.ts) })),
-      ALERT_MAX,
-    );
-    if (!e.detail.retained && a.level !== 'info') notify(title, a.msg);
+    alertsById.set(a.id, a);
+    renderAlerts();
+    if (!e.detail.retained && a.level !== 'info') {
+      showAlarm(a, 0);
+      notify(alertTitle(a), a.msg);
+    }
   });
+  c.addEventListener('recent', (e) => onRecent(e.detail));
   c.addEventListener('voice', (e) => addVoice(e.detail));
   c.addEventListener('error', (e) => console.warn('MQTT', e.detail.error));
 }
@@ -176,6 +200,125 @@ $('enable-notify').addEventListener('click', async (e) => {
   e.target.textContent = p === 'granted' ? 'Đã bật thông báo' : 'Thông báo bị chặn';
 });
 
+// ---------- alerts ----------
+
+const alertTitle = (a) => ALERT_LABEL[a.code] ?? a.code;
+
+function renderAlerts() {
+  const list = [...alertsById.values()].sort((a, b) => b.id - a.id).slice(0, ALERT_MAX);
+  if (!list.length) {
+    $('alerts').replaceChildren(emptyItem('Chưa có cảnh báo.'));
+    return;
+  }
+  $('alerts').replaceChildren(...list.map((a) =>
+    el('li', { className: `alert-${a.level}` },
+      el('strong', { textContent: alertTitle(a) }),
+      a.msg ? ` · ${a.msg}` : '',
+      el('time', { textContent: fmtTime(a.ts) }))));
+}
+
+// Browsers only allow sound after the user has interacted with the page; the login click counts.
+let audioCtx = null;
+document.addEventListener('click', () => {
+  try {
+    audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.resume();
+  } catch {
+    /* no Web Audio: the banner and vibration still work */
+  }
+});
+
+function beep(times) {
+  if (!audioCtx || audioCtx.state !== 'running') return;
+  for (let i = 0; i < times; i++) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const t = audioCtx.currentTime + i * 0.35;
+    osc.frequency.value = 880;
+    gain.gain.value = 0.25;
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.2);
+  }
+}
+
+let titleTimer = null;
+let alarmTopId = 0;
+
+// missedCount > 0: alerts raised while the page was closed; a is the newest of them.
+function showAlarm(a, missedCount) {
+  alarmTopId = Math.max(alarmTopId, a.id);
+  $('alarm').classList.toggle('alarm-warning', a.level !== 'critical');
+  $('alarm-title').textContent = missedCount ? `Trong lúc bạn vắng mặt: ${alertTitle(a)}` : alertTitle(a);
+  const extra = missedCount > 1 ? ` · và ${missedCount - 1} cảnh báo khác` : '';
+  $('alarm-text').textContent = `${a.msg ? `${a.msg} · ` : ''}${fmtTime(a.ts)}${extra}`;
+  $('alarm').hidden = false;
+
+  beep(a.level === 'critical' ? 3 : 1);
+  navigator.vibrate?.(a.level === 'critical' ? [300, 150, 300, 150, 300] : [300]);
+  titleTimer ??= setInterval(() => {
+    document.title = document.title === TITLE ? '⚠ CẢNH BÁO' : TITLE;
+  }, 1000);
+}
+
+function clearAlarm() {
+  $('alarm').hidden = true;
+  clearInterval(titleTimer);
+  titleTimer = null;
+  alarmTopId = 0;
+  document.title = TITLE;
+}
+
+function saveSeen(id) {
+  saveJson(SEEN_KEY, { deviceId, gen, id });
+}
+
+$('alarm-ack').addEventListener('click', () => {
+  saveSeen(Math.max(alarmTopId, 0, ...alertsById.keys()));
+  clearAlarm();
+});
+
+// Raise the banner for alerts in the session's first snapshot that this browser has not acknowledged yet.
+function checkMissedAlerts(list) {
+  const newestId = list.reduce((m, a) => Math.max(m, a.id), 0);
+  const seen = loadJson(SEEN_KEY);
+  if (!seen || seen.deviceId !== deviceId) {
+    saveSeen(newestId); // first visit for this lock: old alerts are history, not news
+    return;
+  }
+  // A different gen means the log was cleared while away, so every alert in it is new to this browser.
+  const missed = list.filter((a) => a.level !== 'info' && (seen.gen !== gen || a.id > seen.id));
+  // Lead with the most severe one; the snapshot is newest first, so the first match is the newest of that level.
+  const top = missed.find((a) => a.level === 'critical') ?? missed[0];
+  if (top) showAlarm(top, missed.length);
+  else saveSeen(newestId);
+}
+
+// ---------- recent snapshot ----------
+
+function onRecent({ gen: newGen, events, alerts }) {
+  if (gen !== null && newGen !== gen) {
+    // The log was cleared on the lock: drop everything shown from the previous generation.
+    historyById.clear();
+    alertsById.clear();
+    historyEpoch++;
+    clearAlarm();
+    $('live').replaceChildren(emptyItem('Lịch sử trên khóa vừa được xóa.'));
+    $('history-status').textContent = '';
+    $('history-more').hidden = true;
+  }
+  gen = newGen;
+  recentEvents = events;
+  for (const x of events) historyById.set(x.id, x);
+  for (const a of alerts) alertsById.set(a.id, a);
+  renderHistory();
+  renderAlerts();
+  if (!missedChecked) {
+    missedChecked = true;
+    checkMissedAlerts(alerts);
+  }
+}
+
 // ---------- history ----------
 
 function historyRow(x) {
@@ -186,23 +329,39 @@ function historyRow(x) {
     el('td', { textContent: resultLabel(x.result) }));
 }
 
+function renderHistory() {
+  const rows = [...historyById.values()].sort((a, b) => b.id - a.id);
+  $('history').replaceChildren(...rows.map(historyRow));
+  const status = $('history-status');
+  if (rows.length && status.textContent === 'Chưa có lịch sử.') status.textContent = '';
+}
+
 async function loadHistory(reset) {
   if (!client) return;
   const status = $('history-status');
   const more = $('history-more');
+  const epoch = historyEpoch;
   more.hidden = true;
   status.textContent = 'Đang tải…';
-  if (reset) oldestHistoryId = null;
 
   try {
-    const page = await client.requestHistory({ beforeId: oldestHistoryId ?? undefined });
-    if (reset) $('history').replaceChildren();
-    for (const x of page.items) $('history').append(historyRow(x));
-    if (page.items.length) oldestHistoryId = Math.min(...page.items.map((x) => x.id));
-    status.textContent = $('history').children.length ? '' : 'Chưa có lịch sử.';
+    const beforeId = reset || !historyById.size ? undefined : Math.min(...historyById.keys());
+    const page = await client.requestHistory({ beforeId });
+    if (epoch !== historyEpoch) return; // the log was cleared meanwhile; this page is stale
+    if (reset) {
+      historyById.clear();
+      for (const x of recentEvents) historyById.set(x.id, x);
+    }
+    for (const x of page.items) historyById.set(x.id, x);
+    status.textContent = historyById.size ? '' : 'Chưa có lịch sử.';
+    renderHistory();
     more.hidden = !page.more;
   } catch (err) {
-    status.textContent = `Không tải được lịch sử: ${err.message}`;
+    if (epoch !== historyEpoch) return;
+    // The retained snapshot still shows the newest entries when the lock itself cannot answer.
+    status.textContent = historyById.size
+      ? `Khóa không phản hồi (${err.message}). Đang hiện ${historyById.size} sự kiện gần nhất lưu trên broker.`
+      : `Không tải được lịch sử: ${err.message}`;
     more.hidden = reset;
   }
 }

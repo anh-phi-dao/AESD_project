@@ -9,10 +9,12 @@
 #if USED_FREERTOS
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "cJSON.h"
 #include "device_config.h"
+#include "door_sim.h"
+#include "event_log.h"
 #include "mqtt_conn.h"
 #include "network_manager.h"
+#include "remote_service.h"
 #endif
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -44,9 +46,6 @@
 #define SYSTEM_NET_WAIT_LOG_MS          15000U
 #define SYSTEM_MQTT_TOPIC_PREFIX        "lock"
 #define SYSTEM_HOSTNAME_SIZE            33U /* ESP-IDF accepts at most 32: "smartlock-" + 22 id chars. */
-#define SYSTEM_HISTORY_REQ_MAX_LEN      256U
-#define SYSTEM_HISTORY_REQ_ID_MAX_LEN   16U
-#define SYSTEM_HISTORY_RESP_SIZE        96U
 #endif
 
 /***********************************************************************************************************************
@@ -137,46 +136,61 @@ static mqtt_conn_config_t              s_mqtt_cfg   = {0};
 static mqtt_conn_instance_ctrl_t       s_mqtt_ctrl  = {0};
 static char                            s_hostname[SYSTEM_HOSTNAME_SIZE];
 
+/* Event log (interim store until storage_manager logs to the SD card) and its MQTT bridge. */
+static event_log_instance_ctrl_t      s_event_log_ctrl = {0};
+static remote_service_instance_ctrl_t s_remote_ctrl    = {0};
+static const remote_service_config_t  s_remote_cfg     = {
+         .p_log  = &s_event_log_ctrl,
+         .p_mqtt = &s_mqtt_ctrl,
+};
+static const event_log_config_t s_event_log_cfg = {
+    .p_nvs_namespace = NULL,
+    .p_callback      = remote_service_log_callback,
+    .p_user_ctx      = &s_remote_ctrl,
+};
+
+#if CONFIG_DOOR_SIM_ENABLE
+static door_sim_instance_ctrl_t s_door_sim_ctrl = {0};
+static const door_sim_config_t  s_door_sim_cfg  = {
+      .p_log       = &s_event_log_ctrl,
+      .button_gpio = (gpio_num_t)CONFIG_DOOR_SIM_BUTTON_GPIO,
+      .console     = true,
+};
+#endif
+
 /* Inbound topics. There is deliberately no unlock topic: the door opens only on site (docs/mqtt_protocol.md). */
 static const mqtt_conn_sub_t s_mqtt_subs[] = {
-    {.p_topic_suffix = "history/req", .qos = 1U, .max_payload_len = SYSTEM_HISTORY_REQ_MAX_LEN},
+    {.p_topic_suffix  = REMOTE_SERVICE_TOPIC_HISTORY_REQ,
+     .qos             = 1U,
+     .max_payload_len = REMOTE_SERVICE_HISTORY_REQ_MAX_LEN},
 };
 
 /***********************************************************************************************************************
- * TEMPORARY HISTORY RESPONDER: answers every history request with an empty page so the web page works end to end.
- * Move this into app/remote_service once storage_manager provides the event log.
+ * Starts the event log and its MQTT bridge, then the dev-board simulator when enabled. Runs before the network task,
+ * so entries made while Wi-Fi is still connecting are kept and published on the first broker connection.
  **********************************************************************************************************************/
-static void system_mqtt_rx_callback(const mqtt_conn_rx_msg_t *const p_msg, void *p_user_ctx)
+static void system_event_init(void)
 {
-    mqtt_conn_instance_ctrl_t *p_mqtt = (mqtt_conn_instance_ctrl_t *)p_user_ctx;
-
-    cJSON *p_req = cJSON_ParseWithLength((const char *)p_msg->p_data, p_msg->data_len);
-    if (p_req == NULL)
+    app_err_t ret = remote_service_init(&s_remote_ctrl, &s_remote_cfg);
+    if (ret != APP_SUCCESS)
     {
+        ESP_LOGE(SYSTEM_TAG, "remote_service_init failed with application error: %d", ret);
+    }
+
+    ret = event_log_init(&s_event_log_ctrl, &s_event_log_cfg);
+    if (ret != APP_SUCCESS)
+    {
+        ESP_LOGE(SYSTEM_TAG, "event_log_init failed with application error: %d", ret);
         return;
     }
 
-    /* req_id is echoed back, so accept only short alphanumeric ids to keep the response well-formed. */
-    const cJSON *p_id  = cJSON_GetObjectItemCaseSensitive(p_req, "req_id");
-    bool         valid = cJSON_IsString(p_id) && (p_id->valuestring[0] != '\0')
-                 && (strlen(p_id->valuestring) <= SYSTEM_HISTORY_REQ_ID_MAX_LEN);
-    for (const char *p_c = valid ? p_id->valuestring : ""; valid && (*p_c != '\0'); p_c++)
+#if CONFIG_DOOR_SIM_ENABLE
+    ret = door_sim_init(&s_door_sim_ctrl, &s_door_sim_cfg);
+    if (ret != APP_SUCCESS)
     {
-        valid = ((*p_c >= '0') && (*p_c <= '9')) || ((*p_c >= 'a') && (*p_c <= 'z')) || ((*p_c >= 'A') && (*p_c <= 'Z'))
-                || (*p_c == '-') || (*p_c == '_');
+        ESP_LOGE(SYSTEM_TAG, "door_sim_init failed with application error: %d", ret);
     }
-
-    if (valid)
-    {
-        char      resp[SYSTEM_HISTORY_RESP_SIZE];
-        const int len
-            = snprintf(resp, sizeof(resp), "{\"req_id\":\"%s\",\"items\":[],\"more\":false}", p_id->valuestring);
-        if ((len > 0) && ((size_t)len < sizeof(resp)))
-        {
-            (void)mqtt_conn_publish(p_mqtt, "history/resp", resp, (size_t)len, 1U, false);
-        }
-    }
-    cJSON_Delete(p_req);
+#endif
 }
 
 /***********************************************************************************************************************
@@ -235,8 +249,9 @@ static void system_network_task(void *p_arg)
         .p_device_id    = s_device_cfg.device_id,
         .p_subs         = s_mqtt_subs,
         .sub_count      = (uint8_t)(sizeof(s_mqtt_subs) / sizeof(s_mqtt_subs[0])),
-        .p_rx_cb        = system_mqtt_rx_callback,
-        .p_user_ctx     = &s_mqtt_ctrl,
+        .p_rx_cb        = remote_service_mqtt_rx_callback,
+        .p_state_cb     = remote_service_mqtt_state_callback,
+        .p_user_ctx     = &s_remote_ctrl,
     };
 
     ret = mqtt_conn_init(&s_mqtt_ctrl, &s_mqtt_cfg);
@@ -305,6 +320,9 @@ void app_main(void)
     }
 
 #if USED_FREERTOS
+    /* The event log tolerates a broken NVS (it then runs from RAM), so start it regardless of nvs_ret. */
+    system_event_init();
+
     /* Start the network first and independently, so a local peripheral failure can still be reported remotely. */
     if ((nvs_ret == ESP_OK)
         && (xTaskCreate(system_network_task, "net_start", SYSTEM_NET_TASK_STACK, NULL, SYSTEM_NET_TASK_PRIORITY, NULL)

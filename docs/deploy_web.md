@@ -56,7 +56,7 @@ Quyền mà web cần:
 
 | Topic | Quyền |
 |---|---|
-| `lock/<id>/status`, `event`, `alert`, `history/resp`, `voice/out` | Subscribe |
+| `lock/<id>/status`, `event`, `alert`, `recent`, `history/resp`, `voice/out` | Subscribe |
 | `lock/<id>/history/req`, `voice/in` | Publish |
 
 Gói miễn phí của HiveMQ Cloud có thể không giới hạn được quyền theo từng topic. Nếu vậy, tài khoản web có thể

@@ -606,6 +606,13 @@ CONFIG_PCF8574_DEFAULT_CLK_SPEED_HZ=100000
 # end of PCF8574 driver configuration
 
 #
+# Door simulator (dev board)
+#
+CONFIG_DOOR_SIM_ENABLE=y
+CONFIG_DOOR_SIM_BUTTON_GPIO=0
+# end of Door simulator (dev board)
+
+#
 # Compiler options
 #
 # CONFIG_COMPILER_OPTIMIZATION_DEBUG is not set

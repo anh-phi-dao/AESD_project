@@ -15,9 +15,11 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 | WiFi + đồng bộ giờ SNTP (`app/network_manager`) | Xong, em đã chạy thử trên module |
 | MQTT qua TLS (`middleware/mqtt_client`) | Xong, đã kết nối HiveMQ Cloud |
 | Đọc credential từ NVS (`app/device_config`) | Xong |
-| Trang web chỉ xem (`web/`) | Xong: trạng thái online/offline, lịch sử, cảnh báo, tin nhắn thoại |
-| Trả lời lịch sử | **Tạm:** luôn trả danh sách rỗng (đánh dấu `TEMPORARY` trong `main.c`) |
-| `remote_service` + Telegram bot | Chưa làm |
+| Trang web chỉ xem (`web/`) | Xong: trạng thái online/offline, lịch sử, cảnh báo (banner + âm báo, báo cả cảnh báo lỡ khi đóng trang), tin nhắn thoại |
+| Lịch sử gần nhất (`app/event_log`) | Xong: 20 sự kiện + 10 cảnh báo, lưu NVS, giữ qua khởi động lại. Log đầy đủ chờ thẻ SD |
+| Cầu nối MQTT (`app/remote_service`) | Xong: `event`, `alert`, `recent` (retained, xem được khi khóa offline), trả lời `history/req` |
+| Giả lập phần cứng (`app/door_sim`) | Xong, **chỉ cho board dev**: nút BOOT + lệnh `sim` trên serial |
+| Telegram bot | Chưa làm |
 | Lưu log ra vào lên thẻ SD | Chưa làm |
 | Tin nhắn thoại trên firmware (INMP441, loa) | Chưa làm; web đã sẵn sàng |
 | Solenoid, NFC (PN532), màn hình, audio | Chưa làm |
@@ -32,6 +34,9 @@ AESD_project/
 ├── app/
 │   ├── device_config/ NEW Đọc credential từ partition "devcfg"
 │   ├── network_manager/  NEW  WiFi STA, tự kết nối lại, SNTP, chờ "có IP + đúng giờ"
+│   ├── event_log/       NEW  Gán id, giữ sự kiện/cảnh báo gần nhất trong NVS, mã phiên gen
+│   ├── remote_service/  NEW  Một task publish event/alert/recent, trả lời history/req
+│   ├── door_sim/        NEW  Giả lập keypad/NFC/cảm biến cho board dev (nút BOOT, lệnh "sim")
 │   ├── lock_service/ ...     (chưa có code)
 ├── device/                   Driver phần cứng (pcf8574, keypad, ...)
 ├── middleware/
@@ -146,9 +151,26 @@ Vào `http://localhost:8000` rồi đăng nhập:
 - **Tài khoản:** tài khoản web
 
 ### Kịch bản trình diễn
+
+Board dev không có keypad/NFC thì dùng **bộ giả lập** (`app/door_sim`, bật sẵn bằng `CONFIG_DOOR_SIM_ENABLE`).
+Nó ghi vào cùng `event_log` mà `lock_service` sẽ dùng, nên luồng MQTT và web chạy y như khi có phần cứng.
+Bộ giả lập chỉ nhận lệnh tại chỗ, **không có lệnh nào qua mạng**.
+
+| Thao tác | Kết quả |
+|---|---|
+| Nhấn nhanh nút **BOOT** | Một lần mở cửa / từ chối ngẫu nhiên |
+| Giữ nút **BOOT** ≥ 1 giây | Cảnh báo `tamper` (critical) |
+| Gõ `sim` trong `idf.py monitor` | Danh sách lệnh: `sim open [pin\|nfc\|button\|key] [tên]`, `sim deny`, `sim alert [code] [level]`, `sim seed [n]`, `sim clear` |
+
+Tên gõ trong console phải **không dấu**: console của ESP-IDF bỏ mọi ký tự ngoài ASCII.
+
 1. Trang hiện **"Khóa: trực tuyến"** và **"Đã kết nối"**.
-2. Bấm **"Tải lại"** ở Lịch sử: hiện "Chưa có lịch sử." Như vậy là thiết bị đã trả lời qua MQTT.
-3. **Rút điện board:** khoảng 45 giây sau chuyển sang **"Khóa: ngoại tuyến"** (Last Will). Cắm lại thì quay về trực tuyến.
+2. Gõ `sim seed 10`: lịch sử và "Hoạt động mới" cập nhật ngay.
+3. Giữ nút BOOT 1 giây: trang hiện **banner đỏ, kêu bíp, rung, nháy tiêu đề tab**. Bấm "Đã xem".
+4. **Rút điện board:** khoảng 45 giây sau chuyển sang **"Khóa: ngoại tuyến"** (Last Will). Bấm "Tải lại":
+   trang vẫn hiện các sự kiện gần nhất từ topic retained `recent`. Cắm lại thì quay về trực tuyến.
+5. Đóng trang, giữ nút BOOT, mở lại trang: banner **"Trong lúc bạn vắng mặt: …"**.
+6. Gõ `sim clear`: lịch sử và cảnh báo trên mọi trang đang mở đều xóa theo (mã phiên `gen` đổi).
 
 nút "Ghi âm gửi tới cửa" (firmware chưa nhận, chưa có loa).
 
