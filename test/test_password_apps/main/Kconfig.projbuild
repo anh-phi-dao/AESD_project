@@ -1,0 +1,36 @@
+# Add configuration entries here only when a component consumes them.
+# Solenoid, auto-lock timeout, and audio settings are deferred until their implementations exist.
+
+menu "PCF8574 driver configuration"
+
+config PCF8574_DEFAULT_SDA_PIN
+    int "Default SDA GPIO"
+    default 15
+    help
+        GPIO used as the default I2C SDA line when the configuration leaves it unspecified.
+
+config PCF8574_DEFAULT_SCL_PIN
+    int "Default SCL GPIO"
+    default 7
+    help
+        GPIO used as the default I2C SCL line when the configuration leaves it unspecified.
+
+config PCF8574_DEFAULT_INT_PIN
+    int "Default interrupt GPIO"
+    default 6
+    help
+        GPIO used as the default PCF8574 interrupt input.
+
+config PCF8574_DEFAULT_I2C_ADDR
+    hex "Default I2C address"
+    default 0x20
+    help
+        Seven-bit I2C address used by the default PCF8574 configuration.
+
+config PCF8574_DEFAULT_CLK_SPEED_HZ
+    int "Default I2C clock speed (Hz)"
+    default 100000
+    help
+        I2C clock speed used by the default PCF8574 configuration.
+
+endmenu
