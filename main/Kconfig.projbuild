@@ -34,3 +34,23 @@ config PCF8574_DEFAULT_CLK_SPEED_HZ
         I2C clock speed used by the default PCF8574 configuration.
 
 endmenu
+
+menu "Door simulator (dev board)"
+
+config DOOR_SIM_ENABLE
+    bool "Simulate lock activity without keypad, NFC or sensors"
+    default n
+    help
+        Creates access events and alerts from the BOOT button and the "sim" serial console command, through the
+        same event log the real lock logic will use, so MQTT and the web page can be tested on a bare ESP32-S3.
+        Nothing from the network can trigger it. Off by default: enable only on a dev board, and do not commit
+        sdkconfig with it enabled.
+
+config DOOR_SIM_BUTTON_GPIO
+    int "Simulator button GPIO (active low)"
+    depends on DOOR_SIM_ENABLE
+    default 0
+    help
+        GPIO0 is the BOOT button of ESP32-S3 dev boards. Short press: access attempt. Hold 1 s: tamper alert.
+
+endmenu
