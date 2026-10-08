@@ -6,6 +6,7 @@ user door01
 topic write lock/door01/status
 topic write lock/door01/event
 topic write lock/door01/alert
+topic write lock/door01/recent
 topic write lock/door01/history/resp
 topic write lock/door01/voice/out
 topic read  lock/door01/history/req
@@ -16,6 +17,7 @@ user owner_door01
 topic read  lock/door01/status
 topic read  lock/door01/event
 topic read  lock/door01/alert
+topic read  lock/door01/recent
 topic read  lock/door01/history/resp
 topic read  lock/door01/voice/out
 topic write lock/door01/history/req

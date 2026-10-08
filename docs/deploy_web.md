@@ -12,25 +12,24 @@ Web chỉ gồm file tĩnh (`web/`) và **không có server riêng**. Trình duy
 Host tĩnh không bao giờ thấy mật khẩu hay dữ liệu của khóa. Lớp bảo vệ là tài khoản trên broker. Web và MQTT
 **không có lệnh mở cửa** (xem `docs/mqtt_protocol.md`), nên kể cả khi lộ tài khoản web thì cũng không mở được cửa.
 
-## Cách 1: GitHub Pages (tự deploy khi merge vào master)
+## Trang demo hiện tại
 
-Workflow `.github/workflows/deploy-web.yml` publish thư mục `web/` mỗi khi `web/**` thay đổi trên `master`.
+**https://project-smartlock.github.io/doorlock-remote/**
 
-1. Chủ repo vào **Settings → Pages → Build and deployment → Source: GitHub Actions** (làm một lần).
-2. Merge PR vào `master`. Tab **Actions** sẽ chạy "Deploy web".
-3. Web có địa chỉ `https://<owner>.github.io/<repo>/`. Link cũng hiện trong kết quả job.
+Trang này là **bản copy tay** của thư mục `web/`, nằm ở repo riêng `project-smartlock/doorlock-remote`
+(GitHub Pages, nhánh `main`, thư mục gốc). Merge vào `master` của repo này **không** tự cập nhật trang đó.
+Cập nhật trang demo:
 
-Chạy lại thủ công: **Actions → Deploy web → Run workflow**.
+1. Sửa và thử `web/` trên máy (`cd web`, `python -m http.server 8000`, mở `http://localhost:8000`).
+2. Copy toàn bộ nội dung `web/` sang repo `doorlock-remote` (giữ lại `README.md` và `.nojekyll` của repo đó).
+3. Commit và push lên nhánh `main` của `doorlock-remote`. Trang cập nhật sau 1–2 phút, bấm Ctrl+F5 nếu vẫn thấy bản cũ.
 
-## Cách 2: demo ngay, không cần quyền admin repo
+Repo này còn có workflow `.github/workflows/deploy-web.yml`: nếu chủ repo bật **Settings → Pages → Source: GitHub
+Actions**, mỗi lần `web/**` thay đổi trên `master` sẽ tự deploy lên `https://<owner>.github.io/<repo>/`. Đó là một
+trang khác với trang demo ở trên.
 
-Kéo thả thư mục `web/` vào [Netlify Drop](https://app.netlify.com/drop) hoặc Cloudflare Pages (Direct Upload).
-Sau vài giây sẽ có link `https://...`. Mỗi lần sửa web thì phải kéo thả lại.
-
-Bắt buộc dùng host có **HTTPS**. Nếu mở qua `http://` (trừ `localhost`), trình duyệt sẽ:
-- chặn ghi âm micro;
-- không cho cài app;
-- chặn kết nối `wss://`.
+Host nào cũng phải có **HTTPS**. Nếu mở qua `http://` (trừ `localhost`), trình duyệt sẽ chặn kết nối `wss://`,
+chặn ghi âm micro và không cho cài app.
 
 ## Điền sẵn broker cho người dùng
 
@@ -43,7 +42,8 @@ export default {
 };
 ```
 
-Người dùng khi đó chỉ cần nhập tài khoản và mật khẩu. File này ai cũng tải về được, nên
+Giá trị nào đặt ở đây thì ô tương ứng **bị ẩn khỏi form đăng nhập**, người dùng chỉ còn nhập tài khoản và mật khẩu.
+Để trống `deviceId` khi một trang dùng cho nhiều khóa (ô mã thiết bị hiện lại). File này ai cũng tải về được, nên
 **tuyệt đối không ghi mật khẩu vào đây**.
 
 ## Tài khoản cho người dùng
@@ -56,12 +56,19 @@ Quyền mà web cần:
 
 | Topic | Quyền |
 |---|---|
-| `lock/<id>/status`, `event`, `alert`, `history/resp`, `voice/out` | Subscribe |
+| `lock/<id>/status`, `event`, `alert`, `recent`, `history/resp`, `voice/out` | Subscribe |
 | `lock/<id>/history/req`, `voice/in` | Publish |
 
 Gói miễn phí của HiveMQ Cloud có thể không giới hạn được quyền theo từng topic. Nếu vậy, tài khoản web có thể
 publish giả sự kiện hoặc cảnh báo, nhưng **vẫn không mở được cửa**. Khi cần phân quyền đúng như bảng trên, dùng
 Mosquitto tự host với `broker/mosquitto/acl.example`.
+
+## Giới hạn: mạng 4G chặn cổng 8884
+
+HiveMQ Cloud gói miễn phí chỉ nhận WebSocket ở **cổng 8884**. Một số mạng 4G chặn cổng này: trang vẫn tải được nhưng
+đăng nhập báo **"Broker không phản hồi. Kiểm tra cổng và đường dẫn WebSocket"**, trong khi cùng thiết bị dùng WiFi thì
+vào được. Khi demo, dùng WiFi hoặc hotspot của nhà mạng khác. Muốn chạy được trên mọi mạng thì cần broker (hoặc
+proxy) nhận WebSocket ở cổng 443.
 
 ## Cài như app trên điện thoại
 
@@ -75,8 +82,8 @@ tới broker.
 ## Giới hạn: thông báo khi đóng app
 
 MQTT qua WebSocket **chỉ chạy khi app đang mở**. Khi đóng app hoặc khóa màn hình điện thoại, web không nhận
-cảnh báo nữa. Thông báo nền (trộm cạy cửa, nhập sai PIN...) sẽ đi qua **Telegram bot** (việc tiếp theo). Web Push
-thật thì cần thêm một server, để giai đoạn sau.
+cảnh báo nữa (khi mở lại, trang báo các cảnh báo đã lỡ). Thông báo nền (trộm cạy cửa, nhập sai PIN...) sẽ đi qua
+**Telegram bot/ntfy** (việc tiếp theo). Web Push thật thì cần thêm một server, để giai đoạn sau.
 
 ## Bảo mật của trang public
 
@@ -87,4 +94,5 @@ thật thì cần thêm một server, để giai đoạn sau.
   1. sửa URL ở `index.html` và `sw.js`;
   2. tính lại mã `integrity`: `curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A`;
   3. tăng `CACHE` trong `sw.js` (`smartlock-v2`...).
-- Không lưu mật khẩu trong trình duyệt. Chỉ URL, mã thiết bị và tên đăng nhập được nhớ nếu người dùng chọn.
+- Không lưu mật khẩu trong trình duyệt. Chỉ tên đăng nhập (và URL, mã thiết bị khi `config.js` để trống) được nhớ
+  nếu người dùng chọn.

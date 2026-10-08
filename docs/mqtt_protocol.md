@@ -28,6 +28,7 @@ Gốc topic: `lock/<device_id>/` (ví dụ `lock/door01/`).
 | `status` | thiết bị → web | 1 | có | `online` / `offline` (offline là Last Will) |
 | `event` | thiết bị → web | 1 | không | JSON sự kiện ra/vào |
 | `alert` | thiết bị → web | 1 | không | JSON cảnh báo |
+| `recent` | thiết bị → web | 1 | có | JSON các sự kiện và cảnh báo gần nhất, kèm mã phiên `gen` |
 | `history/req` | web → thiết bị | 1 | không | JSON yêu cầu lịch sử, tối đa 256 byte |
 | `history/resp` | thiết bị → web | 1 | không | JSON một trang lịch sử |
 | `voice/out` | thiết bị → web | 1 | không | chunk nhị phân, tin nhắn thoại của khách tại cửa |
@@ -63,6 +64,22 @@ Thời gian (`ts`) là Unix time tính bằng giây (UTC), nên thiết bị ph�
 Mọi `alert` mức `warning`/`critical` cũng được gửi qua Telegram bot, vì trang web chỉ nhận
 MQTT khi đang mở.
 
+### `recent`
+
+```json
+{"gen": 3554416255, "events": [ /* object event, mới nhất trước */ ], "alerts": [ /* object alert, mới nhất trước */ ]}
+```
+
+- Retained, nên trang web vừa mở đã có ngay các mục mới nhất, **kể cả khi khóa đang ngoại tuyến** (lúc đó
+  `history/req` không có ai trả lời).
+- Thiết bị publish lại sau mỗi sự kiện / cảnh báo mới, sau mỗi lần kết nối broker, và khi xóa lịch sử.
+- Tối đa 20 sự kiện và 10 cảnh báo (`EVENT_LOG_EVENT_CAPACITY`, `EVENT_LOG_ALERT_CAPACITY`). Web bỏ qua phần vượt quá 50.
+- `gen` là số nguyên ngẫu nhiên, **chỉ đổi khi lịch sử trên khóa bị xóa**. Web thấy `gen` khác bản đang hiển thị thì
+  xóa toàn bộ lịch sử và cảnh báo đang hiện. Web lưu `{deviceId, gen, id}` của cảnh báo đã xem (chỉ id, không lưu nội
+  dung) để báo những cảnh báo xảy ra trong lúc trang đóng; `gen` khác nghĩa là mọi cảnh báo trong `recent` đều mới.
+- `id` của sự kiện và của cảnh báo là hai dãy riêng, tăng dần, **không bao giờ dùng lại**, kể cả sau khi xóa lịch sử
+  hay khởi động lại (lưu trong NVS).
+
 ### `history/req` và `history/resp`
 
 ```json
@@ -70,7 +87,10 @@ MQTT khi đang mở.
 ```
 
 - `before_id`: lấy các sự kiện có `id < before_id`; bỏ trường này để lấy trang mới nhất.
-- `limit`: 1..50. Thiết bị tự giới hạn lại và nên bỏ qua request nếu nhận quá 1 request/giây.
+- `limit`: 1..50, mặc định 20. Thiết bị tự giới hạn lại và bỏ qua request nếu nhận quá 4 request/giây.
+- `req_id`: 1..16 ký tự `[A-Za-z0-9_-]`; request sai định dạng bị bỏ qua, không có phản hồi.
+- Hiện thiết bị trả lời từ `app/event_log` (20 sự kiện gần nhất, lưu NVS). Khi có log trên thẻ SD, chỉ cần đổi nguồn
+  dữ liệu, định dạng giữ nguyên.
 
 ```json
 {"req_id": "k3j9x2", "items": [ /* các object event, mới nhất trước */ ], "more": true}

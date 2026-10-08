@@ -9,9 +9,10 @@ import { parseVoiceChunk, buildVoiceChunks, VoiceAssembler } from './voice.js';
 const HISTORY_TIMEOUT_MS = 8000;
 const CONNECT_TIMEOUT_MS = 15000;
 const HISTORY_LIMIT_MAX = 50;
+const RECENT_MAX = 50; // firmware sends at most 20 events / 10 alerts; anything bigger is not from the lock
 const TEXT = new TextDecoder();
 
-const IN_TOPICS = ['status', 'event', 'alert', 'history/resp', 'voice/out'];
+const IN_TOPICS = ['status', 'event', 'alert', 'recent', 'history/resp', 'voice/out'];
 
 export class LockClient extends EventTarget {
   #client = null;
@@ -150,6 +151,16 @@ export class LockClient extends EventTarget {
       case 'alert': {
         const alert = parseAlert(parseJson(bytes));
         if (alert) this.#emit('alert', { alert, retained: packet.retain });
+        break;
+      }
+      case 'recent': {
+        // Retained snapshot: the newest events/alerts, available even while the lock is offline. gen changes when
+        // the log is cleared on the lock, so the page must drop what it shows from the previous generation.
+        const o = parseJson(bytes);
+        if (!o || !Number.isInteger(o.gen) || o.gen < 0) break;
+        const events = Array.isArray(o.events) ? o.events.slice(0, RECENT_MAX).map(parseEvent).filter(Boolean) : [];
+        const alerts = Array.isArray(o.alerts) ? o.alerts.slice(0, RECENT_MAX).map(parseAlert).filter(Boolean) : [];
+        this.#emit('recent', { gen: o.gen, events, alerts, retained: packet.retain });
         break;
       }
       case 'history/resp':
