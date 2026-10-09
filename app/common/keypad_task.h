@@ -9,6 +9,7 @@
 #endif
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
+#include "esp_timer.h"
 #include "esp_log.h"
 #include "password.h"
 #include "sdkconfig.h"

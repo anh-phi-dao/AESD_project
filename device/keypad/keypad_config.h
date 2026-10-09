@@ -19,10 +19,28 @@
 #error "KEYPAD_CFG_PARAMETER_CHECKING must be 0 or 1"
 #endif
 
-#define KEYPAD_MAX_ROW_COUNT      4U
-#define KEYPAD_MAX_COLUMN_COUNT   3U
-#define KEYPAD_RELEASED_PATTERN   UINT8_MAX
-#define KEYPAD_IDLE_PATTERN       0xF0U
+#define KEYPAD_MAX_ROW_COUNT    4U
+#define KEYPAD_MAX_COLUMN_COUNT 3U
+#define KEYPAD_RELEASED_PATTERN UINT8_MAX
+#define KEYPAD_IDLE_PATTERN     0xF0U
+
+enum
+{
+    BUTTON_RELEASE,
+    BUTTON_PRESSED,
+    BUTTON_PRESSED_RELEASED,
+    BUTTON_PRESSED_HOLD,
+    BUTTON_HOLDING
+};
+
+enum
+{
+    RECORD = 20,
+    PLAY,
+    USER_MODE,
+    ADMINSTRATOR_MODE,
+    CHANGE_PASSWORD,
+};
 
 /* Temporary board mapping for the 4x3 keypad connected to the PCF8574. */
 static const uint8_t s_keypad_row_masks[KEYPAD_MAX_ROW_COUNT] = {
@@ -51,6 +69,21 @@ static const char s_keypad_keymap[KEYPAD_MAX_ROW_COUNT * KEYPAD_MAX_COLUMN_COUNT
     '*',
     '0',
     '#',
+};
+
+static const char s_hold_keypad_keymap[KEYPAD_MAX_ROW_COUNT * KEYPAD_MAX_COLUMN_COUNT] = {
+    '\0',
+    '\0',
+    '\0',
+    '\0',
+    '\0',
+    '\0',
+    '\0',
+    RECORD,
+    PLAY,
+    USER_MODE,
+    ADMINSTRATOR_MODE,
+    CHANGE_PASSWORD,
 };
 
 #endif /* KEYPAD_CONFIG_H_ */
