@@ -252,7 +252,7 @@ void boot_pcf7584(void)
              PCF_INT_PIN,
              PCF_I2C_ADDR);
 
-    app_err_t ret = pcf8574_init(&pcf_ctrl, &pcf_cfg);
+    app_err_t ret = pcf8574_init(&pcf_ctrl, &pcf_cfg, false);
     if (ret != APP_SUCCESS)
     {
         ESP_LOGE(SYSTEM_TAG, "pcf8574_init failed with application error: %d", ret);
