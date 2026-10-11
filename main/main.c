@@ -1,10 +1,10 @@
- //Includes   <System Includes> , "Project Includes"
+// Includes   <System Includes> , "Project Includes"
 
 #include "keypad_task.h"
+#include "rfid_task.h"
 #include "network_task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
-
 
 /***********************************************************************************************************************
  * Initializes the main NVS partition used by the Wi-Fi driver and user data.
@@ -50,6 +50,8 @@ void app_main(void)
     }
 #endif
 
+    boot_rfid();
     boot_pcf7584();
     xTaskCreate(keypad_task, "keypad", 4096, NULL, 1, NULL);
+    xTaskCreate(rfid_task, "rfid_task", 4096, NULL, 1, NULL);
 }
