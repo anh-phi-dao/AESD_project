@@ -35,10 +35,12 @@ enum
 
 enum
 {
-    RECORD = 20,
+    ENTER_PASSWORD = 20,
+    ACCEPT_PASSWORD,
+    RECORD,
     PLAY,
-    USER_MODE,
-    ADMINSTRATOR_MODE,
+    SET_USER_MODE,
+    SET_ADMINSTRATOR_MODE,
     CHANGE_PASSWORD,
 };
 
@@ -81,8 +83,8 @@ static const char s_hold_keypad_keymap[KEYPAD_MAX_ROW_COUNT * KEYPAD_MAX_COLUMN_
     '\0',
     RECORD,
     PLAY,
-    USER_MODE,
-    ADMINSTRATOR_MODE,
+    SET_USER_MODE,
+    SET_ADMINSTRATOR_MODE,
     CHANGE_PASSWORD,
 };
 

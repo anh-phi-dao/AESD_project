@@ -195,14 +195,15 @@ static void pcf7584_keypad_pressed_released_action(void)
              keypad_state.pressed_keys,
              keypad_state.ghost_detected ? " (ghost detected)" : "");
     system_log_keypad_debug(&keypad_state);
+    char key = keypad_state_to_map_read(&keypad_state);
     /*Chỗ này phải update thêm*/
-    switch (fill_password(&keypad_state, &pass_cfg))
+    switch (fill_password(key, &pass_cfg))
     {
-        case AUTHEN_SUCCESS:
-            ESP_LOGI(SYSTEM_TAG, "True input password %s", pass_cfg.input_password);
+        case ERROR_FILLING_PASSWORD:
+            ESP_LOGI(SYSTEM_TAG, "Filling password error");
             break;
-        case AUTHEN_FAILED:
-            ESP_LOGI(SYSTEM_TAG, "False input password %s", pass_cfg.input_password);
+        case NO_MORE_SPACE:
+            ESP_LOGI(SYSTEM_TAG, "No more space to contain more password character %s", pass_cfg.input_password);
             break;
         default:
             break;
@@ -227,10 +228,10 @@ static void pcf7584_keypad_pressed_hold_action(void)
         case PLAY:
             ESP_LOGI(SYSTEM_TAG, "Keypad playing");
             break;
-        case USER_MODE:
+        case SET_USER_MODE:
             ESP_LOGI(SYSTEM_TAG, "Keypad set up user mode");
             break;
-        case ADMINSTRATOR_MODE:
+        case SET_ADMINSTRATOR_MODE:
             ESP_LOGI(SYSTEM_TAG, "Keypad set up adminstration mode");
             break;
         case CHANGE_PASSWORD:
@@ -286,11 +287,11 @@ void boot_pcf7584(void)
     ESP_LOGI(SYSTEM_TAG, "Keypad initialized successfully.");
 
 #if USED_FREERTOS
-    ret = init_device_password(&pass_cfg, 7, "1234567");
+    ret = init_password(&pass_cfg, 7, "1234567");
     if (APP_SUCCESS != ret)
     {
-        ESP_LOGE(SYSTEM_TAG, "init_device_password failed with application error: %d", ret);
-        deinit_device_password(&pass_cfg);
+        ESP_LOGE(SYSTEM_TAG, "init_password failed with application error: %d", ret);
+        deinit_password(&pass_cfg);
         while (1)
         {
             vTaskDelay(pdMS_TO_TICKS(2000));

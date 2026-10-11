@@ -28,15 +28,23 @@
 
 struct password_handle
 {
-    uint16_t length;
     uint16_t current_index;
+    bool     full;
     char     input_password[MAX_PASSWORD_LENGTH];
     char     password[MAX_PASSWORD_LENGTH];
 };
 
 typedef struct password_handle password_handle_t;
 
-typedef enum password_authen_state_t
+enum
+{
+    ERROR_FILLING_PASSWORD = -1,
+    FILLING_PASSWORD,
+    FILLING_ENOUGH,
+    NO_MORE_SPACE
+};
+
+enum
 {
     AUTHEN_SUCCESS,
     AUTHEN_FAILED,
@@ -48,12 +56,16 @@ typedef enum password_authen_state_t
  ******************************************************************************************************************/
 
 /* Initialize the device password. */
-app_err_t init_device_password(password_handle_t *device_password, uint16_t length, const char *init_password);
+app_err_t init_password(password_handle_t *device_password, uint16_t length, const char *init_password);
 
 /* Fill the password from keypad input and return the authentication status. */
-uint8_t fill_password(keypad_state_t *p_state, password_handle_t *device_password);
+uint8_t fill_password(char key, password_handle_t *device_password);
+
+uint8_t validate_password(password_handle_t *device_password);
+
+app_err_t change_password(password_handle_t *device_password, const char *new_password);
 
 /* Deinitialize the device password. */
-app_err_t deinit_device_password(password_handle_t *device_password);
+app_err_t deinit_password(password_handle_t *device_password);
 
 #endif
