@@ -18,7 +18,7 @@
  * Macro definitions
  **********************************************************************************************************************/
 
-#define SYSTEM_TAG  "SYSTEM"
+#define KEYPAD_TAG  "KEYPAD"
 #define PCF_SDA_PIN CONFIG_PCF8574_DEFAULT_SDA_PIN
 #define PCF_SCL_PIN CONFIG_PCF8574_DEFAULT_SCL_PIN
 #if USED_FREERTOS

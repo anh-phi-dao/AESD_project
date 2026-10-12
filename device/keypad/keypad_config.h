@@ -36,7 +36,6 @@ enum
 enum
 {
     ENTER_PASSWORD = 20,
-    ACCEPT_PASSWORD,
     RECORD,
     PLAY,
     SET_USER_MODE,
@@ -80,7 +79,7 @@ static const char s_hold_keypad_keymap[KEYPAD_MAX_ROW_COUNT * KEYPAD_MAX_COLUMN_
     '\0',
     '\0',
     '\0',
-    '\0',
+    ENTER_PASSWORD,
     RECORD,
     PLAY,
     SET_USER_MODE,

@@ -1,4 +1,4 @@
-#ifndef PASSWOR_H_
+#ifndef PASSWORD_H_
 
 #define PASSWORD_H_
 
@@ -63,7 +63,7 @@ uint8_t fill_password(char key, password_handle_t *device_password);
 
 uint8_t validate_password(password_handle_t *device_password);
 
-app_err_t change_password(password_handle_t *device_password, const char *new_password);
+app_err_t change_password(password_handle_t *device_password);
 
 /* Deinitialize the device password. */
 app_err_t deinit_password(password_handle_t *device_password);

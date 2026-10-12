@@ -87,25 +87,20 @@ uint8_t validate_password(password_handle_t *device_password)
         status = AUTHEN_SUCCESS;
     }
     memset(device_password->input_password, 0, strlen(device_password->input_password));
+    device_password->current_index = 0;
     return status;
     /*TODO : Sử dụng các thuật toán bảo mật để validate trên các chuỗi đã được mã hóa*/
 }
 
-app_err_t change_password(password_handle_t *device_password, const char *new_password)
+app_err_t change_password(password_handle_t *device_password)
 {
-    if (!new_password)
+    size_t input_length = strlen(device_password->input_password);
+    if (!input_length || input_length > MAX_PASSWORD_LENGTH)
     {
         return APP_ERR_INVALID_ARGUMENT;
     }
-
-    if (strlen(new_password) == 0 || strlen(new_password) > MAX_PASSWORD_LENGTH)
-        ;
-    {
-        return APP_ERR_INVALID_ARGUMENT;
-    }
-
     memset(device_password->password, 0, strlen(device_password->password));
-    memcpy(device_password->password, new_password, strlen(new_password));
+    memcpy(device_password->password, device_password->input_password, strlen(device_password->input_password));
     return APP_SUCCESS;
 }
 

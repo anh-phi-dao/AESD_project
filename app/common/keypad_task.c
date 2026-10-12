@@ -2,6 +2,7 @@
  * Includes   <System Includes> , "Project Includes"
  **********************************************************************************************************************/
 #include "keypad_task.h"
+#include "system_export.h"
 
 static app_err_t system_keypad_port_write(void *p_context, uint8_t value);
 static app_err_t system_keypad_port_read(void *p_context, uint8_t *p_value);
@@ -10,7 +11,6 @@ static void      timer_callback(void *param);
 static void system_pcf8574_intr_callback(uint8_t pin_state, void *p_user_ctx);
 static void user_pcf8574_intr_callback(void);
 #endif
-password_handle_t              pass_cfg;
 pcf8574_instance_ctrl_t        pcf_ctrl;
 keypad_instance_ctrl_t         keypad_ctrl;
 static const keypad_port_api_t s_keypad_port_api = {
@@ -77,7 +77,7 @@ static void timer_callback(void *param)
     app_err_t      ret               = keypad_scan(&keypad_ctrl, &temp_keypad_state);
     if (APP_SUCCESS != ret)
     {
-        ESP_LOGE(SYSTEM_TAG, "keypad_scan failed with application error: %d", ret);
+        ESP_LOGE(KEYPAD_TAG, "keypad_scan failed with application error: %d", ret);
         return;
     }
     if (keypad_state.state != BUTTON_PRESSED)
@@ -105,7 +105,7 @@ static void user_pcf8574_intr_callback(void)
             break;
         case BUTTON_HOLDING:
             keypad_state.state = BUTTON_RELEASE;
-            ESP_LOGI(SYSTEM_TAG, "Keypad key: released");
+            ESP_LOGI(KEYPAD_TAG, "Keypad key: released");
             break;
         default:
             break;
@@ -141,11 +141,11 @@ static void system_log_keypad_debug(const keypad_state_t *const p_state)
         {
             if (p_state->state == BUTTON_PRESSED_RELEASED)
             {
-                ESP_LOGI(SYSTEM_TAG, "Keypad key: %c", s_keypad_keymap[key_index]);
+                ESP_LOGI(KEYPAD_TAG, "Keypad key: %c", s_keypad_keymap[key_index]);
             }
             else if (p_state->state == BUTTON_PRESSED_HOLD)
             {
-                ESP_LOGI(SYSTEM_TAG, "Keypad key: %c", s_hold_keypad_keymap[key_index]);
+                ESP_LOGI(KEYPAD_TAG, "Keypad key: %c", s_hold_keypad_keymap[key_index]);
             }
             has_pressed_key = true;
         }
@@ -160,7 +160,7 @@ static void system_pcf8574_intr_callback(uint8_t pin_state, void *p_user_ctx)
 {
     (void)p_user_ctx;
     user_pcf8574_intr_callback();
-    ESP_LOGI(SYSTEM_TAG, "PCF8574 input state changed: 0x%02X", pin_state);
+    ESP_LOGI(KEYPAD_TAG, "PCF8574 input state changed: 0x%02X", pin_state);
 }
 #endif
 
@@ -176,7 +176,7 @@ static void pcf7584_keypad_released_action(void)
     if (APP_SUCCESS != ret)
     {
         keypad_state.state = BUTTON_RELEASE;
-        ESP_LOGE(SYSTEM_TAG, "keypad_scan failed with application error: %d", ret);
+        ESP_LOGE(KEYPAD_TAG, "keypad_scan failed with application error: %d", ret);
         return;
     }
     if (keypad_state.pressed_keys == 0x00)
@@ -190,31 +190,33 @@ static void pcf7584_keypad_released_action(void)
 
 static void pcf7584_keypad_pressed_released_action(void)
 {
-    ESP_LOGI(SYSTEM_TAG,
+    ESP_LOGI(KEYPAD_TAG,
              "PRESSED_RELEASE Keypad state: 0x%04X%s",
              keypad_state.pressed_keys,
              keypad_state.ghost_detected ? " (ghost detected)" : "");
     system_log_keypad_debug(&keypad_state);
     char key = keypad_state_to_map_read(&keypad_state);
     /*Chỗ này phải update thêm*/
-    switch (fill_password(key, &pass_cfg))
+    switch (fill_password(key, device_mode.mode_password_ptr))
     {
         case ERROR_FILLING_PASSWORD:
-            ESP_LOGI(SYSTEM_TAG, "Filling password error");
+            ESP_LOGI(KEYPAD_TAG, "Filling password error");
             break;
         case NO_MORE_SPACE:
-            ESP_LOGI(SYSTEM_TAG, "No more space to contain more password character %s", pass_cfg.input_password);
+            ESP_LOGI(KEYPAD_TAG,
+                     "No more space to contain more password character %s",
+                     device_mode.mode_password_ptr->input_password);
             break;
         default:
             break;
     }
     keypad_state.state = BUTTON_RELEASE;
-    ESP_LOGI(SYSTEM_TAG, "Keypad key: released");
+    ESP_LOGI(KEYPAD_TAG, "Keypad key: released");
 }
 
 static void pcf7584_keypad_pressed_hold_action(void)
 {
-    ESP_LOGI(SYSTEM_TAG,
+    ESP_LOGI(KEYPAD_TAG,
              "PRESSED_HOLD Keypad state: 0x%04X%s",
              keypad_state.pressed_keys,
              keypad_state.ghost_detected ? " (ghost detected)" : "");
@@ -222,31 +224,47 @@ static void pcf7584_keypad_pressed_hold_action(void)
     char hold_key = keypad_state_to_map_read(&keypad_state);
     switch (hold_key)
     {
+        case ENTER_PASSWORD:
+            ESP_LOGI(KEYPAD_TAG, "Keypad begin validate password");
+            ESP_LOGI(KEYPAD_TAG, "Keypad input before password : %s", device_mode.mode_password_ptr->input_password);
+            if (validate_password(device_mode.mode_password_ptr) == AUTHEN_SUCCESS)
+            {
+
+                device_mode.mode_update_state(&device_mode, LOGGED_IN, true);
+            }
+            else
+            {
+                device_mode.mode_update_state(&device_mode, WRONG_PASSWORD, true);
+            }
+            ESP_LOGI(KEYPAD_TAG, "Keypad input after password : %s", device_mode.mode_password_ptr->input_password);
+            break;
         case RECORD:
-            ESP_LOGI(SYSTEM_TAG, "Keypad recording");
+            ESP_LOGI(KEYPAD_TAG, "Keypad recording");
             break;
         case PLAY:
-            ESP_LOGI(SYSTEM_TAG, "Keypad playing");
+            ESP_LOGI(KEYPAD_TAG, "Keypad playing");
             break;
         case SET_USER_MODE:
-            ESP_LOGI(SYSTEM_TAG, "Keypad set up user mode");
+            ESP_LOGI(KEYPAD_TAG, "Keypad set up user mode");
+            change_device_mode(&device_mode, USER_MODE);
             break;
         case SET_ADMINSTRATOR_MODE:
-            ESP_LOGI(SYSTEM_TAG, "Keypad set up adminstration mode");
+            ESP_LOGI(KEYPAD_TAG, "Keypad set up adminstration mode");
+            change_device_mode(&device_mode, ADMIN_MODE);
             break;
         case CHANGE_PASSWORD:
-            ESP_LOGI(SYSTEM_TAG, "Keypad change password");
+            ESP_LOGI(KEYPAD_TAG, "Keypad change password");
             break;
         default:
             break;
     }
     keypad_state.state = BUTTON_HOLDING;
-    ESP_LOGI(SYSTEM_TAG, "Keypad key: holding");
+    ESP_LOGI(KEYPAD_TAG, "Keypad key: holding");
 }
 
 void boot_pcf7584(void)
 {
-    ESP_LOGI(SYSTEM_TAG,
+    ESP_LOGI(KEYPAD_TAG,
              "Initializing PCF8574 (SDA: IO%d, SCL: IO%d, INT: IO%d, Addr: 0x%02X)...",
              PCF_SDA_PIN,
              PCF_SCL_PIN,
@@ -256,7 +274,7 @@ void boot_pcf7584(void)
     app_err_t ret = pcf8574_init(&pcf_ctrl, &pcf_cfg, false);
     if (ret != APP_SUCCESS)
     {
-        ESP_LOGE(SYSTEM_TAG, "pcf8574_init failed with application error: %d", ret);
+        ESP_LOGE(KEYPAD_TAG, "pcf8574_init failed with application error: %d", ret);
 #if USED_FREERTOS
         while (1)
         {
@@ -267,12 +285,12 @@ void boot_pcf7584(void)
 #endif
     }
 
-    ESP_LOGI(SYSTEM_TAG, "PCF8574 initialized successfully.");
+    ESP_LOGI(KEYPAD_TAG, "PCF8574 initialized successfully.");
 
     ret = keypad_init(&keypad_ctrl, &keypad_cfg);
     if (APP_SUCCESS != ret)
     {
-        ESP_LOGE(SYSTEM_TAG, "keypad_init failed with application error: %d", ret);
+        ESP_LOGE(KEYPAD_TAG, "keypad_init failed with application error: %d", ret);
         (void)pcf8574_deinit(&pcf_ctrl);
 #if USED_FREERTOS
         while (1)
@@ -284,24 +302,12 @@ void boot_pcf7584(void)
 #endif
     }
 
-    ESP_LOGI(SYSTEM_TAG, "Keypad initialized successfully.");
+    ESP_LOGI(KEYPAD_TAG, "Keypad initialized successfully.");
 
 #if USED_FREERTOS
-    ret = init_password(&pass_cfg, 7, "1234567");
-    if (APP_SUCCESS != ret)
-    {
-        ESP_LOGE(SYSTEM_TAG, "init_password failed with application error: %d", ret);
-        deinit_password(&pass_cfg);
-        while (1)
-        {
-            vTaskDelay(pdMS_TO_TICKS(2000));
-        }
-    }
-
-    ESP_LOGI(SYSTEM_TAG, "Password initialized successfully. %s", pass_cfg.password);
 
     ESP_ERROR_CHECK(esp_timer_create(&my_timer_args, &timer_handler));
-    ESP_LOGI(SYSTEM_TAG, "Timer initialized successfully ");
+    ESP_LOGI(KEYPAD_TAG, "Timer initialized successfully ");
 
 #else
     return;

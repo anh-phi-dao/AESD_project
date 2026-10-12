@@ -1,3 +1,4 @@
+
 #ifndef SYSTEM_MODE_H
 #define SYSTEM_MODE_H
 
@@ -8,6 +9,7 @@
 #if USED_FREERTOS
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #endif
 
 #include <stdint.h>
@@ -20,14 +22,22 @@
 #include "password.h"
 #include "keypad_config.h"
 
+/*******************************************************************************************************************
+ * Macro definitions
+ ******************************************************************************************************************/
+
 /*There are 12 button, means that maximum action of each mode is 12*/
 #define MAXIMUM_ALLOWED_ACTION 12
 
-enum
+/*******************************************************************************************************************
+ * Typedef definitions
+ ******************************************************************************************************************/
+
+typedef enum
 {
-    USER_MODE,
+    USER_MODE = 1,
     ADMIN_MODE
-};
+} mode_enum_t;
 
 enum
 {
@@ -38,7 +48,7 @@ enum
 
 enum
 {
-    ADMIN_LOGGING_IN = 0,
+    ADMIN_LOGGING_IN = 3,
     ADMIN_LOGGED_IN,
     ADMIN_WRONG_PASSWORD,
     ADMIN_CHANGE_PASWORD,
@@ -50,16 +60,61 @@ enum
     ADMIN_PLAYING
 };
 
-typedef struct
+enum
+{
+    LOGGING_IN,
+    LOGGED_IN,
+    WRONG_PASSWORD
+};
+
+typedef struct st_mode_management
 {
     SemaphoreHandle_t  mode_mutex;
     password_handle_t *mode_password_ptr;
-    uint8_t            mode_id;
-    uint8_t            mode_state;
-    bool               mode_initialized;
+    app_err_t (*mode_update_state)(struct st_mode_management *mode, uint8_t new_mode_state, bool use_common_state);
+    uint8_t mode_id;
+    uint8_t mode_state;
+    bool    mode_initialized;
 
 } mode_management_t;
 
-app_err_t init_device_mode_management(void);
-app_err_t change_device_mode(uint8_t mode_id);
+/*******************************************************************************************************************
+ * Public APIs
+ ******************************************************************************************************************/
+
+/**
+ * @brief Initialize device mode management.
+ *
+ * @param[in,out] mode Pointer to the mode management structure.
+ *
+ * @return
+ *     - APP_SUCCESS           : Initialization completed successfully.
+ *     - APP_ERR_INVALID_STATE : Mutex creation or password initialization
+ *                               failed.
+ */
+app_err_t init_device_mode_management(mode_management_t *mode);
+
+/**
+ * @brief Change the active device mode.
+ *
+ * @param[in,out] mode    Pointer to the mode management structure.
+ * @param[in]     mode_id Identifier of the mode to activate.
+ *
+ * @return
+ *     - APP_SUCCESS           : Mode change completed.
+ *     - APP_ERR_INVALID_STATE : Mode management is not in a valid state.
+ *     - APP_ERR_TIMEOUT       : Failed to acquire the mode mutex.
+ */
+app_err_t change_device_mode(mode_management_t *mode, mode_enum_t mode_id);
+
+/**
+ * @brief Deinitialize device mode management.
+ *
+ * @param[in,out] mode Pointer to the mode management structure.
+ *
+ * @return
+ *     This function does not return a value.
+ */
+void deinit_device_mode_management(mode_management_t *mode);
+
 #endif
