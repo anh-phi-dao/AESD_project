@@ -62,6 +62,7 @@ enum
 
 enum
 {
+    ERROR_STATE = -1,
     LOGGING_IN,
     LOGGED_IN,
     WRONG_PASSWORD
@@ -116,5 +117,9 @@ app_err_t change_device_mode(mode_management_t *mode, mode_enum_t mode_id);
  *     This function does not return a value.
  */
 void deinit_device_mode_management(mode_management_t *mode);
+
+uint8_t get_device_mode_common_state(mode_management_t *mode);
+
+app_err_t reset_device_mode_management(mode_management_t *mode);
 
 #endif

@@ -1,10 +1,8 @@
 #ifndef SYSTEM_TASK_H
 #define SYSTEM_TASK_H
 
-#if USED_FREERTOS
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#endif
 #include "system_control.h"
 #include "esp_timer.h"
 #include "esp_log.h"

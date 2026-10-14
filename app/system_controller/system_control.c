@@ -28,7 +28,7 @@ password_handle_t admin_password;
  *     - APP_ERR_INVALID_STATE  : Mode management is not in a valid state.
  *     - APP_ERR_TIMEOUT        : Failed to acquire the mode mutex.
  */
-static app_err_t reset_device_mode_management(mode_management_t *mode)
+app_err_t reset_device_mode_management(mode_management_t *mode)
 {
     if (mode->mode_initialized == false)
     {
@@ -44,6 +44,18 @@ static app_err_t reset_device_mode_management(mode_management_t *mode)
 
     mode->mode_password_ptr->current_index = 0;
     memset(mode->mode_password_ptr->input_password, 0, sizeof(mode->mode_password_ptr->input_password));
+
+    switch (mode->mode_id)
+    {
+        case USER_MODE:
+            mode->mode_state = USER_ENTERING_PASSWORD;
+            break;
+        case ADMIN_MODE:
+            mode->mode_state = ADMIN_LOGGING_IN;
+            break;
+        default:
+            break;
+    }
 
 #if USED_FREERTOS
     xSemaphoreGive(mode->mode_mutex);
@@ -322,4 +334,37 @@ static app_err_t update_state_for_admin_mode(mode_management_t *mode, uint8_t ne
     xSemaphoreGive(mode->mode_mutex);
 #endif
     return APP_SUCCESS;
+}
+
+uint8_t get_device_mode_common_state(mode_management_t *mode)
+{
+    if (mode->mode_initialized == false)
+    {
+        return ERROR_STATE;
+    }
+
+#if USED_FREERTOS
+    if (xSemaphoreTake(mode->mode_mutex, portMAX_DELAY) != pdTRUE)
+    {
+        return ERROR_STATE;
+    }
+#endif
+    uint8_t state = ERROR_STATE;
+    if (mode->mode_state == USER_ENTERING_PASSWORD || mode->mode_state == ADMIN_LOGGING_IN)
+    {
+        state = LOGGING_IN;
+    }
+    else if (mode->mode_state == USER_OPEN_LOCK || mode->mode_state == ADMIN_LOGGED_IN)
+    {
+        state = LOGGED_IN;
+    }
+    else if (mode->mode_state == USER_WRONG_PASSWORD || mode->mode_state == ADMIN_WRONG_PASSWORD)
+    {
+        state = WRONG_PASSWORD;
+    }
+
+#if USED_FREERTOS
+    xSemaphoreGive(mode->mode_mutex);
+#endif
+    return state;
 }

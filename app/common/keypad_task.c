@@ -327,7 +327,10 @@ void keypad_task(void *pvParameter)
             case BUTTON_PRESSED:
                 break;
             case BUTTON_PRESSED_RELEASED:
-                pcf7584_keypad_pressed_released_action();
+                if (device_mode.mode_state != USER_OPEN_LOCK)
+                {
+                    pcf7584_keypad_pressed_released_action();
+                }
                 break;
             case BUTTON_PRESSED_HOLD:
                 pcf7584_keypad_pressed_hold_action();
