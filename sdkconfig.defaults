@@ -11,3 +11,12 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # Wi-Fi/IP event handlers run in sys_evt. The default 2304 B overflows once the door_sim console installs the UART
 # driver, because every log line then goes through it; 4096 B leaves room for the handlers' logs and SNTP start.
 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
+
+
+# The ILI9341 driver sends the low byte of each pixel first, so LVGL must store pixels swapped. SquareLine Studio
+# projects must use the matching "16 bit swap" color depth, or the generated ui.c stops the build (docs/tft_ui.md).
+CONFIG_LV_COLOR_16_SWAP=y
+
+# Fonts used by the SquareLine projects (design/). Each size costs flash only, about 15-35 KB.
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
