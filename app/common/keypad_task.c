@@ -101,11 +101,8 @@ static void user_pcf8574_intr_callback(void)
         case BUTTON_PRESSED:
             keypad_state.state = BUTTON_PRESSED_RELEASED;
             break;
-        case BUTTON_PRESSED_RELEASED:
-            break;
         case BUTTON_HOLDING:
             keypad_state.state = BUTTON_RELEASE;
-            ESP_LOGI(KEYPAD_TAG, "Keypad key: released");
             break;
         default:
             break;
@@ -166,6 +163,8 @@ static void system_pcf8574_intr_callback(uint8_t pin_state, void *p_user_ctx)
 
 static void pcf7584_keypad_released_action(void)
 {
+    uint8_t current_mode_state = get_device_mode_common_state(&device_mode);
+
     memset(&keypad_state, 0, sizeof(keypad_state));
     if (esp_timer_is_active(timer_handler) == true)
     {
@@ -184,8 +183,15 @@ static void pcf7584_keypad_released_action(void)
         keypad_state.state = BUTTON_RELEASE;
         return;
     }
-    ESP_ERROR_CHECK(esp_timer_start_periodic(timer_handler, 3000000));
-    keypad_state.state = BUTTON_PRESSED;
+
+    if ((current_mode_state == LOGGING_IN) || (current_mode_state == LOGGED_IN))
+    {
+        ESP_ERROR_CHECK(esp_timer_start_periodic(timer_handler, 3000000));
+        keypad_state.state = BUTTON_PRESSED;
+        return;
+    }
+
+    keypad_state.state = BUTTON_RELEASE;
 }
 
 static void pcf7584_keypad_pressed_released_action(void)
@@ -319,6 +325,17 @@ void keypad_task(void *pvParameter)
 #if USED_FREERTOS
     while (1)
     {
+        if (get_device_lock_state(&device_mode))
+        {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+        /*Add more state checks here with switch statement*/
+        if (get_device_mode_common_state(&device_mode) != LOGGING_IN)
+        {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
         switch (keypad_state.state)
         {
             case BUTTON_RELEASE:
@@ -327,10 +344,7 @@ void keypad_task(void *pvParameter)
             case BUTTON_PRESSED:
                 break;
             case BUTTON_PRESSED_RELEASED:
-                if (device_mode.mode_state != USER_OPEN_LOCK)
-                {
-                    pcf7584_keypad_pressed_released_action();
-                }
+                pcf7584_keypad_pressed_released_action();
                 break;
             case BUTTON_PRESSED_HOLD:
                 pcf7584_keypad_pressed_hold_action();

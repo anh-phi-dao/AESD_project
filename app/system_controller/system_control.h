@@ -44,13 +44,15 @@ enum
     USER_ENTERING_PASSWORD = 0,
     USER_OPEN_LOCK,
     USER_WRONG_PASSWORD,
+    USER_LOCK_SYSTEM
 };
 
 enum
 {
-    ADMIN_LOGGING_IN = 3,
+    ADMIN_LOGGING_IN = 4,
     ADMIN_LOGGED_IN,
     ADMIN_WRONG_PASSWORD,
+    ADMIN_LOCK_SYSTEM,
     ADMIN_CHANGE_PASWORD,
     ADMIN_ADD_UID,
     ADMIN_DELETE_UID,
@@ -65,7 +67,8 @@ enum
     ERROR_STATE = -1,
     LOGGING_IN,
     LOGGED_IN,
-    WRONG_PASSWORD
+    WRONG_PASSWORD,
+    LOCK_SYSTEM
 };
 
 typedef struct st_mode_management
@@ -76,7 +79,8 @@ typedef struct st_mode_management
     uint8_t mode_id;
     uint8_t mode_state;
     bool    mode_initialized;
-
+    bool    mode_tmp_lock;
+    bool    mode_lock_forever;
 } mode_management_t;
 
 /*******************************************************************************************************************
@@ -121,5 +125,7 @@ void deinit_device_mode_management(mode_management_t *mode);
 uint8_t get_device_mode_common_state(mode_management_t *mode);
 
 app_err_t reset_device_mode_management(mode_management_t *mode);
+
+bool get_device_lock_state(mode_management_t *mode);
 
 #endif

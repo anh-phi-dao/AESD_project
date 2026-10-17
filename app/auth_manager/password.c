@@ -25,8 +25,9 @@ app_err_t init_password(password_handle_t *device_password, uint16_t length, con
         return APP_ERR_INVALID_ARGUMENT;
     }
 
-    device_password->current_index = 0;
-    device_password->full          = false;
+    device_password->current_index      = 0;
+    device_password->full               = false;
+    device_password->failed_valid_count = 0;
     memcpy(device_password->password, init_password, length);
     return APP_SUCCESS;
 }
@@ -88,6 +89,18 @@ uint8_t validate_password(password_handle_t *device_password)
     }
     memset(device_password->input_password, 0, strlen(device_password->input_password));
     device_password->current_index = 0;
+    switch (status)
+    {
+        case AUTHEN_SUCCESS:
+            device_password->failed_valid_count = 0;
+            break;
+        case AUTHEN_FAILED:
+            device_password->failed_valid_count++;
+            break;
+        default:
+            break;
+    }
+
     return status;
     /*TODO : Sử dụng các thuật toán bảo mật để validate trên các chuỗi đã được mã hóa*/
 }

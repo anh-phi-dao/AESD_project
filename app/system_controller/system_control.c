@@ -35,15 +35,8 @@ app_err_t reset_device_mode_management(mode_management_t *mode)
         return APP_ERR_INVALID_STATE;
     }
 
-#if USED_FREERTOS
-    if (xSemaphoreTake(mode->mode_mutex, portMAX_DELAY) != pdTRUE)
-    {
-        return APP_ERR_TIMEOUT;
-    }
-#endif
-
     mode->mode_password_ptr->current_index = 0;
-    memset(mode->mode_password_ptr->input_password, 0, sizeof(mode->mode_password_ptr->input_password));
+    memset(mode->mode_password_ptr->input_password, 0, strlen(mode->mode_password_ptr->input_password));
 
     switch (mode->mode_id)
     {
@@ -56,10 +49,7 @@ app_err_t reset_device_mode_management(mode_management_t *mode)
         default:
             break;
     }
-
-#if USED_FREERTOS
-    xSemaphoreGive(mode->mode_mutex);
-#endif
+    mode->mode_tmp_lock = false;
 
     return APP_SUCCESS;
 }
@@ -112,7 +102,8 @@ app_err_t init_device_mode_management(mode_management_t *mode)
     mode->mode_password_ptr = &user_password;
     mode->mode_update_state = update_state_for_user_mode;
     mode->mode_initialized  = true;
-
+    mode->mode_tmp_lock     = false;
+    mode->mode_lock_forever = false;
     return APP_SUCCESS;
 }
 
@@ -226,7 +217,10 @@ static app_err_t update_state_for_user_mode(mode_management_t *mode, uint8_t new
                 mode->mode_state = USER_OPEN_LOCK;
                 break;
             case WRONG_PASSWORD:
-                mode->mode_state = WRONG_PASSWORD;
+                mode->mode_state = USER_WRONG_PASSWORD;
+                break;
+            case LOCK_SYSTEM:
+                mode->mode_state = USER_LOCK_SYSTEM;
                 break;
             default:
 #if USED_FREERTOS
@@ -250,6 +244,9 @@ static app_err_t update_state_for_user_mode(mode_management_t *mode, uint8_t new
             break;
         case USER_WRONG_PASSWORD:
             mode->mode_state = USER_WRONG_PASSWORD;
+            break;
+        case USER_LOCK_SYSTEM:
+            mode->mode_state = USER_LOCK_SYSTEM;
             break;
         default:
 #if USED_FREERTOS
@@ -297,6 +294,9 @@ static app_err_t update_state_for_admin_mode(mode_management_t *mode, uint8_t ne
             case WRONG_PASSWORD:
                 mode->mode_state = ADMIN_WRONG_PASSWORD;
                 break;
+            case LOCK_SYSTEM:
+                mode->mode_state = ADMIN_LOCK_SYSTEM;
+                break;
             default:
 #if USED_FREERTOS
                 xSemaphoreGive(mode->mode_mutex);
@@ -320,6 +320,9 @@ static app_err_t update_state_for_admin_mode(mode_management_t *mode, uint8_t ne
             break;
         case ADMIN_WRONG_PASSWORD:
             mode->mode_state = ADMIN_WRONG_PASSWORD;
+            break;
+        case ADMIN_LOCK_SYSTEM:
+            mode->mode_state = ADMIN_LOCK_SYSTEM;
             break;
         /*TODO: thêm các case khác cho state bổ sung của admin*/
         default:
@@ -362,9 +365,23 @@ uint8_t get_device_mode_common_state(mode_management_t *mode)
     {
         state = WRONG_PASSWORD;
     }
+    else if (mode->mode_state == USER_LOCK_SYSTEM || mode->mode_state == ADMIN_LOCK_SYSTEM)
+    {
+        state = LOCK_SYSTEM;
+    }
 
 #if USED_FREERTOS
     xSemaphoreGive(mode->mode_mutex);
 #endif
     return state;
+}
+
+bool get_device_lock_state(mode_management_t *mode)
+{
+    bool lock_state = false;
+    if (mode->mode_tmp_lock || mode->mode_lock_forever)
+    {
+        lock_state = true;
+    }
+    return lock_state;
 }

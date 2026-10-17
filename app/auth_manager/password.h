@@ -29,6 +29,7 @@
 struct password_handle
 {
     uint16_t current_index;
+    uint8_t  failed_valid_count;
     bool     full;
     char     input_password[MAX_PASSWORD_LENGTH];
     char     password[MAX_PASSWORD_LENGTH];
