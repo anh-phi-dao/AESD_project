@@ -21,3 +21,7 @@ config/*.csv
 !config/*.csv.example
 config/*.bin
 config/certs/
+
+# SquareLine Studio backups and caches (design/)
+design/**/backup/
+design/**/cache/

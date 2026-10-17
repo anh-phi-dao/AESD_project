@@ -9,7 +9,7 @@ const LIVE_MAX = 30;
 const ALERT_MAX = 30;
 const TITLE = document.title;
 
-const METHOD_LABEL = { pin: 'Mã PIN', nfc: 'Thẻ NFC', button: 'Nút bên trong', key: 'Chìa cơ' };
+const METHOD_LABEL = { pin: 'Mã PIN', nfc: 'Thẻ NFC', button: 'Nút bên trong', key: 'Chìa cơ', fingerprint: 'Vân tay' };
 const ALERT_LABEL = {
   pin_bruteforce: 'Nhập sai PIN nhiều lần',
   unknown_card: 'Quẹt thẻ lạ',

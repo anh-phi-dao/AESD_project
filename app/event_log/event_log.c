@@ -39,7 +39,7 @@ static app_err_t event_log_check_ready(const event_log_instance_ctrl_t *const p_
  * Private global variables
  **********************************************************************************************************************/
 
-static const char *const s_method_names[EVENT_LOG_METHOD_COUNT] = {"pin", "nfc", "button", "key"};
+static const char *const s_method_names[EVENT_LOG_METHOD_COUNT] = {"pin", "nfc", "button", "key", "fingerprint"};
 static const char *const s_result_names[EVENT_LOG_RESULT_COUNT] = {"granted", "denied"};
 static const char *const s_level_names[EVENT_LOG_LEVEL_COUNT]   = {"info", "warning", "critical"};
 static const char *const s_code_names[EVENT_LOG_ALERT_COUNT]    = {

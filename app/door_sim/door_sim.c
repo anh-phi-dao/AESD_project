@@ -241,7 +241,7 @@ static int door_sim_cmd(void *p_context, int argc, char **argv)
             method = door_sim_find(argv[2], door_sim_method_name, EVENT_LOG_METHOD_COUNT);
             if (method < 0)
             {
-                printf("Unknown method \"%s\" (pin, nfc, button, key)\n", argv[2]);
+                printf("Unknown method \"%s\" (pin, nfc, button, key, fingerprint)\n", argv[2]);
                 return 1;
             }
         }
