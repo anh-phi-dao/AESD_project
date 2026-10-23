@@ -151,6 +151,8 @@ app_err_t change_device_mode(mode_management_t *mode, mode_enum_t mode_id)
             mode->mode_state        = ADMIN_LOGGED_IN;
             break;
 
+        case ADMIN_CHANGE_PASSWORD:
+
         default:
             break;
     }

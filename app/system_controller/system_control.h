@@ -84,6 +84,9 @@ typedef struct st_mode_management
     bool    mode_lock_forever;
 } mode_management_t;
 
+extern password_handle_t user_password;
+extern password_handle_t admin_password;
+
 /*******************************************************************************************************************
  * Public APIs
  ******************************************************************************************************************/

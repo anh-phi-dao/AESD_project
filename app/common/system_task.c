@@ -151,6 +151,9 @@ void system_control_task(void *pvParameter)
                 ESP_LOGI(SYSTEM_CONTROL_TAG, "Admin entered wrong password too much time , locking system");
                 system_common_lock_system();
                 break;
+            case ADMIN_CHANGE_PASSWORD:
+                ESP_LOGI(SYSTEM_CONTROL_TAG, "Admin is changing password");
+                break;
             default:
                 break;
         }
