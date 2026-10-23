@@ -33,6 +33,8 @@ struct password_handle
     bool     full;
     char     input_password[MAX_PASSWORD_LENGTH];
     char     password[MAX_PASSWORD_LENGTH];
+    struct password_handle
+        *interacted_password; /* Pointer to the password handle that is currently being interacted with. */
 };
 
 typedef struct password_handle password_handle_t;

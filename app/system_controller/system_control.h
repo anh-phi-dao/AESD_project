@@ -53,7 +53,7 @@ enum
     ADMIN_LOGGED_IN,
     ADMIN_WRONG_PASSWORD,
     ADMIN_LOCK_SYSTEM,
-    ADMIN_CHANGE_PASWORD,
+    ADMIN_CHANGE_PASSWORD,
     ADMIN_ADD_UID,
     ADMIN_DELETE_UID,
     ADMIN_ADD_FIGER_PRINT,
@@ -68,7 +68,8 @@ enum
     LOGGING_IN,
     LOGGED_IN,
     WRONG_PASSWORD,
-    LOCK_SYSTEM
+    LOCK_SYSTEM,
+    OTHER_STATE
 };
 
 typedef struct st_mode_management
@@ -82,6 +83,9 @@ typedef struct st_mode_management
     bool    mode_tmp_lock;
     bool    mode_lock_forever;
 } mode_management_t;
+
+extern password_handle_t user_password;
+extern password_handle_t admin_password;
 
 /*******************************************************************************************************************
  * Public APIs
@@ -127,5 +131,7 @@ uint8_t get_device_mode_common_state(mode_management_t *mode);
 app_err_t reset_device_mode_management(mode_management_t *mode);
 
 bool get_device_lock_state(mode_management_t *mode);
+
+uint8_t get_device_admin_mode_state(mode_management_t *mode);
 
 #endif

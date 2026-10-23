@@ -112,8 +112,17 @@ app_err_t change_password(password_handle_t *device_password)
     {
         return APP_ERR_INVALID_ARGUMENT;
     }
-    memset(device_password->password, 0, strlen(device_password->password));
-    memcpy(device_password->password, device_password->input_password, strlen(device_password->input_password));
+    if (device_password->interacted_password == NULL)
+    {
+        return APP_ERR_INVALID_POINTER;
+    }
+    /*Chỗ này sẽ thế bằng việc ghi đè xuống sd card hoặc thêm tác vụ để lưu trữ xuống sd card*/
+    memset(device_password->interacted_password->password, 0, strlen(device_password->interacted_password->password));
+    memcpy(device_password->interacted_password->password,
+           device_password->input_password,
+           strlen(device_password->input_password));
+    memset(device_password->input_password, 0, strlen(device_password->input_password));
+    device_password->current_index = 0;
     return APP_SUCCESS;
 }
 

@@ -151,6 +151,8 @@ app_err_t change_device_mode(mode_management_t *mode, mode_enum_t mode_id)
             mode->mode_state        = ADMIN_LOGGED_IN;
             break;
 
+        case ADMIN_CHANGE_PASSWORD:
+
         default:
             break;
     }
@@ -203,6 +205,9 @@ static app_err_t update_state_for_user_mode(mode_management_t *mode, uint8_t new
 
     if (mode->mode_id != USER_MODE)
     {
+#if USED_FREERTOS
+        xSemaphoreGive(mode->mode_mutex);
+#endif
         return APP_ERR_INVALID_STATE;
     }
 
@@ -278,6 +283,9 @@ static app_err_t update_state_for_admin_mode(mode_management_t *mode, uint8_t ne
 
     if (mode->mode_id != ADMIN_MODE)
     {
+#if USED_FREERTOS
+        xSemaphoreGive(mode->mode_mutex);
+#endif
         return APP_ERR_INVALID_STATE;
     }
 
@@ -324,6 +332,9 @@ static app_err_t update_state_for_admin_mode(mode_management_t *mode, uint8_t ne
         case ADMIN_LOCK_SYSTEM:
             mode->mode_state = ADMIN_LOCK_SYSTEM;
             break;
+        case ADMIN_CHANGE_PASSWORD:
+            mode->mode_state = ADMIN_CHANGE_PASSWORD;
+            break;
         /*TODO: thêm các case khác cho state bổ sung của admin*/
         default:
 #if USED_FREERTOS
@@ -352,7 +363,7 @@ uint8_t get_device_mode_common_state(mode_management_t *mode)
         return ERROR_STATE;
     }
 #endif
-    uint8_t state = ERROR_STATE;
+    uint8_t state = OTHER_STATE;
     if (mode->mode_state == USER_ENTERING_PASSWORD || mode->mode_state == ADMIN_LOGGING_IN)
     {
         state = LOGGING_IN;
@@ -384,4 +395,71 @@ bool get_device_lock_state(mode_management_t *mode)
         lock_state = true;
     }
     return lock_state;
+}
+
+uint8_t get_device_admin_mode_state(mode_management_t *mode)
+{
+    if (mode->mode_initialized == false)
+    {
+        return ERROR_STATE;
+    }
+
+#if USED_FREERTOS
+    if (xSemaphoreTake(mode->mode_mutex, portMAX_DELAY) != pdTRUE)
+    {
+        return ERROR_STATE;
+    }
+#endif
+
+    if (mode->mode_id != ADMIN_MODE)
+    {
+#if USED_FREERTOS
+        xSemaphoreGive(mode->mode_mutex);
+#endif
+        return ERROR_STATE;
+    }
+
+    uint8_t state = ERROR_STATE;
+    switch (mode->mode_state)
+    {
+        case ADMIN_LOGGING_IN:
+            state = ADMIN_LOGGING_IN;
+            break;
+        case ADMIN_LOGGED_IN:
+            state = ADMIN_LOGGED_IN;
+            break;
+        case ADMIN_WRONG_PASSWORD:
+            state = ADMIN_WRONG_PASSWORD;
+            break;
+        case ADMIN_LOCK_SYSTEM:
+            state = ADMIN_LOCK_SYSTEM;
+            break;
+        case ADMIN_CHANGE_PASSWORD:
+            state = ADMIN_CHANGE_PASSWORD;
+            break;
+        case ADMIN_ADD_UID:
+            state = ADMIN_ADD_UID;
+            break;
+        case ADMIN_DELETE_UID:
+            state = ADMIN_DELETE_UID;
+            break;
+        case ADMIN_ADD_FIGER_PRINT:
+            state = ADMIN_ADD_FIGER_PRINT;
+            break;
+        case ADMIN_DELETE_FINGER_PRINT:
+            state = ADMIN_DELETE_FINGER_PRINT;
+            break;
+        case ADMIN_RECORDING:
+            state = ADMIN_RECORDING;
+            break;
+        case ADMIN_PLAYING:
+            state = ADMIN_PLAYING;
+            break;
+        default:
+            break;
+    }
+#if USED_FREERTOS
+    xSemaphoreGive(mode->mode_mutex);
+#endif
+    return state;
 }

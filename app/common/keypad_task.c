@@ -163,8 +163,8 @@ static void system_pcf8574_intr_callback(uint8_t pin_state, void *p_user_ctx)
 
 static void pcf7584_keypad_released_action(void)
 {
-    uint8_t current_mode_state = get_device_mode_common_state(&device_mode);
-
+    uint8_t current_mode_state       = get_device_mode_common_state(&device_mode);
+    uint8_t current_admin_mode_state = get_device_admin_mode_state(&device_mode);
     memset(&keypad_state, 0, sizeof(keypad_state));
     if (esp_timer_is_active(timer_handler) == true)
     {
@@ -185,6 +185,12 @@ static void pcf7584_keypad_released_action(void)
     }
 
     if ((current_mode_state == LOGGING_IN) || (current_mode_state == LOGGED_IN))
+    {
+        ESP_ERROR_CHECK(esp_timer_start_periodic(timer_handler, 3000000));
+        keypad_state.state = BUTTON_PRESSED;
+        return;
+    }
+    else if ((current_admin_mode_state == ADMIN_CHANGE_PASSWORD))
     {
         ESP_ERROR_CHECK(esp_timer_start_periodic(timer_handler, 3000000));
         keypad_state.state = BUTTON_PRESSED;
@@ -231,16 +237,25 @@ static void pcf7584_keypad_pressed_hold_action(void)
     switch (hold_key)
     {
         case ENTER_PASSWORD:
-            ESP_LOGI(KEYPAD_TAG, "Keypad begin validate password");
             ESP_LOGI(KEYPAD_TAG, "Keypad input before password : %s", device_mode.mode_password_ptr->input_password);
-            if (validate_password(device_mode.mode_password_ptr) == AUTHEN_SUCCESS)
+            if (get_device_admin_mode_state(&device_mode) == ADMIN_CHANGE_PASSWORD)
             {
-
-                device_mode.mode_update_state(&device_mode, LOGGED_IN, true);
+                ESP_LOGI(KEYPAD_TAG, "Keypad changing password");
+                change_password(device_mode.mode_password_ptr);
             }
-            else
+            else if (get_device_mode_common_state(&device_mode) == LOGGING_IN)
             {
-                device_mode.mode_update_state(&device_mode, WRONG_PASSWORD, true);
+                ESP_LOGI(KEYPAD_TAG, "Keypad begin validate password");
+                if (validate_password(device_mode.mode_password_ptr) == AUTHEN_SUCCESS)
+                {
+                    device_mode.mode_update_state(&device_mode, LOGGED_IN, true);
+                    ESP_LOGI(KEYPAD_TAG, "Keypad validate password success");
+                }
+                else
+                {
+                    device_mode.mode_update_state(&device_mode, WRONG_PASSWORD, true);
+                    ESP_LOGI(KEYPAD_TAG, "Keypad validate password failed");
+                }
             }
             ESP_LOGI(KEYPAD_TAG, "Keypad input after password : %s", device_mode.mode_password_ptr->input_password);
             break;
@@ -251,15 +266,53 @@ static void pcf7584_keypad_pressed_hold_action(void)
             ESP_LOGI(KEYPAD_TAG, "Keypad playing");
             break;
         case SET_USER_MODE:
-            ESP_LOGI(KEYPAD_TAG, "Keypad set up user mode");
-            change_device_mode(&device_mode, USER_MODE);
+            if (get_device_admin_mode_state(&device_mode) == ADMIN_CHANGE_PASSWORD)
+            {
+                ESP_LOGI(KEYPAD_TAG, "Keypad change password for user mode");
+                device_mode.mode_password_ptr->interacted_password = &user_password;
+            }
+            else
+            {
+                ESP_LOGI(KEYPAD_TAG, "Keypad set up user mode");
+                change_device_mode(&device_mode, USER_MODE);
+                device_mode.mode_password_ptr->interacted_password = NULL;
+            }
             break;
         case SET_ADMINSTRATOR_MODE:
-            ESP_LOGI(KEYPAD_TAG, "Keypad set up adminstration mode");
-            change_device_mode(&device_mode, ADMIN_MODE);
+            if (get_device_admin_mode_state(&device_mode) == ADMIN_CHANGE_PASSWORD)
+            {
+                ESP_LOGI(KEYPAD_TAG, "Keypad change password for admin mode");
+                device_mode.mode_password_ptr->interacted_password = &admin_password;
+            }
+            else
+            {
+                ESP_LOGI(KEYPAD_TAG, "Keypad set up administrator mode");
+                change_device_mode(&device_mode, ADMIN_MODE);
+                device_mode.mode_password_ptr->interacted_password = NULL;
+            }
             break;
         case CHANGE_PASSWORD:
-            ESP_LOGI(KEYPAD_TAG, "Keypad change password");
+            if (device_mode.mode_id == ADMIN_MODE)
+            {
+                if (get_device_admin_mode_state(&device_mode) == ADMIN_LOGGED_IN)
+                {
+                    ESP_LOGI(KEYPAD_TAG, "Keypad begin to change password");
+                    device_mode.mode_update_state(&device_mode, ADMIN_CHANGE_PASSWORD, false);
+                    if (device_mode.mode_password_ptr->interacted_password == NULL)
+                    {
+                        device_mode.mode_password_ptr->interacted_password = &user_password;
+                    }
+                }
+                else if (get_device_admin_mode_state(&device_mode) == ADMIN_CHANGE_PASSWORD)
+                {
+                    ESP_LOGI(KEYPAD_TAG, "Return to admin logged in state");
+                    device_mode.mode_update_state(&device_mode, LOGGED_IN, true);
+                }
+            }
+            else
+            {
+                ESP_LOGI(KEYPAD_TAG, "Usermode is not allowed to change password");
+            }
             break;
         default:
             break;
@@ -331,10 +384,15 @@ void keypad_task(void *pvParameter)
             continue;
         }
         /*Add more state checks here with switch statement*/
-        if (get_device_mode_common_state(&device_mode) != LOGGING_IN)
+
+        switch (get_device_mode_common_state(&device_mode))
         {
-            vTaskDelay(pdMS_TO_TICKS(50));
-            continue;
+            case WRONG_PASSWORD:
+            case LOCK_SYSTEM:
+                vTaskDelay(pdMS_TO_TICKS(50));
+                continue;
+            default:
+                break;
         }
         switch (keypad_state.state)
         {
