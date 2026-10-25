@@ -2,6 +2,7 @@
  * Includes   <System Includes> , "Project Includes"
  **********************************************************************************************************************/
 #include "keypad_task.h"
+#include "ui_task.h"
 
 static app_err_t system_keypad_port_write(void *p_context, uint8_t value);
 static app_err_t system_keypad_port_read(void *p_context, uint8_t *p_value);
@@ -190,6 +191,10 @@ void keypad_task(void *pvParameter)
                          keypad_state.pressed_keys,
                          keypad_state.ghost_detected ? " (ghost detected)" : "");
                 system_log_keypad_debug(&keypad_state);
+                if (!keypad_state.ghost_detected)
+                {
+                    ui_task_post_new_keys(keypad_state.pressed_keys, last_pressed_keys);
+                }
                 last_pressed_keys  = keypad_state.pressed_keys;
                 has_previous_state = true;
                 switch (fill_password(&keypad_state, &pass_cfg))
