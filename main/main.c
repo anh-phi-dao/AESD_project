@@ -4,6 +4,7 @@
 #include "rfid_task.h"
 #include "network_task.h"
 #include "system_task.h"
+#include "ui_task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 
@@ -54,6 +55,9 @@ void app_main(void)
 #endif
     boot_system_control();
     boot_rfid();
+
+    /* Before the keypad, which halts here when the expander is missing, so the screen still comes up. */
+    boot_ui();
     boot_pcf7584();
     xTaskCreate(keypad_task, "keypad", 4096, NULL, 1, NULL);
     xTaskCreate(rfid_task, "rfid_task", 4096, NULL, 1, NULL);

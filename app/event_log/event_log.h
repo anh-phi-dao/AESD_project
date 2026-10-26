@@ -27,10 +27,11 @@
 /* Values and their wire names are defined in docs/mqtt_protocol.md. */
 typedef enum e_event_log_method
 {
-    EVENT_LOG_METHOD_PIN = 0, /* "pin" */
-    EVENT_LOG_METHOD_NFC,     /* "nfc" */
-    EVENT_LOG_METHOD_BUTTON,  /* "button": exit button inside */
-    EVENT_LOG_METHOD_KEY,     /* "key": mechanical key */
+    EVENT_LOG_METHOD_PIN = 0,     /* "pin" */
+    EVENT_LOG_METHOD_NFC,         /* "nfc" */
+    EVENT_LOG_METHOD_BUTTON,      /* "button": exit button inside */
+    EVENT_LOG_METHOD_KEY,         /* "key": mechanical key */
+    EVENT_LOG_METHOD_FINGERPRINT, /* "fingerprint". Added last: stored entries keep their values. */
     EVENT_LOG_METHOD_COUNT
 } event_log_method_t;
 

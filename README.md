@@ -22,7 +22,8 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 | Telegram bot | Chưa làm |
 | Lưu log ra vào lên thẻ SD | Chưa làm |
 | Tin nhắn thoại trên firmware (INMP441, loa) | Chưa làm; web đã sẵn sàng |
-| Solenoid, NFC (PN532), màn hình, audio | Chưa làm |
+| Màn hình TFT ILI9341 + LVGL (`device/ili9341_tft_display`, `middleware/lvgl_port`, `app/ui_service`) | Đã có giao diện SquareLine (người dùng + admin), keypad gõ được vào màn hình. Chưa nối với lock_service ([docs/tft_ui.md](docs/tft_ui.md)) |
+| Solenoid, NFC (PN532), audio | Chưa làm |
 
 ---
 
@@ -30,17 +31,20 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 
 ```
 AESD_project/
-├── main/   Điểm vào: khởi tạo NVS, task mạng, keypad (đang test)
+├── main/   Điểm vào: khởi tạo NVS, task mạng, màn hình, keypad (đang test)
 ├── app/
+│   ├── common/          Task chung: network_task, keypad_task, ui_task (nối màn hình với LVGL và keypad)
 │   ├── device_config/ NEW Đọc credential từ partition "devcfg"
 │   ├── network_manager/  NEW  WiFi STA, tự kết nối lại, SNTP, chờ "có IP + đúng giờ"
 │   ├── event_log/       NEW  Gán id, giữ sự kiện/cảnh báo gần nhất trong NVS, mã phiên gen
 │   ├── remote_service/  NEW  Một task publish event/alert/recent, trả lời history/req
 │   ├── door_sim/        NEW  Giả lập keypad/NFC/cảm biến cho board dev (nút BOOT, lệnh "sim")
+│   ├── ui_service/      NEW  Màn hình: nạp giao diện SquareLine trong ui/ (người dùng) và ui_admin/ (admin), nhận phím keypad
 │   ├── lock_service/ ...     (chưa có code)
-├── device/                   Driver phần cứng (pcf8574, keypad, ...)
+├── device/                   Driver phần cứng (pcf8574, keypad, ili9341_tft_display, ...)
 ├── middleware/
 │   ├── mqtt_client/   NEW  Bọc esp-mqtt: TLS, Last Will, allowlist topic, ghép payload lớn
+│   ├── lvgl_port/     NEW  Chạy LVGL 8.3 trên FreeRTOS: tick, buffer DMA, task, mutex, keypad
 │   └── ...
 ├── util/                     app_err_t, err_map
 ├── third_party/   NEW  Thư viện ngoài (hiện trống, giữ bằng .gitkeep)
@@ -49,11 +53,14 @@ AESD_project/
 │       ├── lock-client.js         Thư viện MQTT chỉ xem (không đụng DOM)
 │       ├── voice.js               Đóng gói/ghép chunk thoại, ghi âm → PCM 16 kHz
 │       └── app.js                 Giao diện
+├── design/   NEW  Hai project SquareLine Studio (người dùng, admin)
 ├── broker/mosquitto/   NEW  Cấu hình Mosquitto tự host + ACL mẫu
 ├── config/    NEW  Mẫu credential; file thật bị gitignore
 ├── docs/
 │   ├── mqtt_protocol.md     NEW  Topic, payload JSON, định dạng chunk thoại (hợp đồng firmware ↔ web)
-│   └── provisioning.md      NEW  Nạp credential, xử lý lỗi, chuẩn bị sản phẩm
+│   ├── provisioning.md      NEW  Nạp credential, xử lý lỗi, chuẩn bị sản phẩm
+│   ├── tft_ui.md            NEW  Màn hình TFT, quy trình SquareLine Studio, sửa lỗi
+│   └── ui_data.md           NEW  Dữ liệu firmware cập nhật trên từng màn hình
 ├── scripts/
 │   ├── provision_device.py  NEW  Ghi credential vào board
 │   └── ...                        format.sh, generate_config.py (có từ trước)

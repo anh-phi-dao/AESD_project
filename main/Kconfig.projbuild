@@ -54,3 +54,73 @@ config DOOR_SIM_BUTTON_GPIO
         GPIO0 is the BOOT button of ESP32-S3 dev boards. Short press: access attempt. Hold 1 s: tamper alert.
 
 endmenu
+
+menu "TFT display (ILI9341) and UI"
+
+config UI_ENABLE
+    bool "Drive the ILI9341 TFT with LVGL"
+    default y
+    help
+        Starts the display driver, LVGL and the screen UI (app/ui_service). Without a SquareLine export the UI is a
+        built-in test screen. The lock works the same without a screen.
+
+config UI_LCD_SPI_HOST
+    int "SPI host (1 = SPI2, 2 = SPI3)"
+    depends on UI_ENABLE
+    range 1 2
+    default 1
+
+config UI_LCD_MOSI_GPIO
+    int "MOSI GPIO"
+    depends on UI_ENABLE
+    default 11
+
+config UI_LCD_SCLK_GPIO
+    int "SCLK GPIO"
+    depends on UI_ENABLE
+    default 12
+
+config UI_LCD_CS_GPIO
+    int "CS GPIO"
+    depends on UI_ENABLE
+    default 10
+
+config UI_LCD_DC_GPIO
+    int "DC GPIO"
+    depends on UI_ENABLE
+    default 13
+
+config UI_LCD_RST_GPIO
+    int "RESET GPIO"
+    depends on UI_ENABLE
+    default 14
+
+config UI_LCD_BL_GPIO
+    int "Backlight GPIO (-1: not wired, always on)"
+    depends on UI_ENABLE
+    default -1
+
+config UI_LCD_BL_ACTIVE_HIGH
+    bool "Backlight is on when the GPIO is high"
+    depends on UI_ENABLE && UI_LCD_BL_GPIO >= 0
+    default y
+
+config UI_LCD_PCLK_HZ
+    int "SPI clock (Hz)"
+    depends on UI_ENABLE
+    range 1000000 80000000
+    default 26000000
+    help
+        26 MHz is verified with jumper wires on the dev board (test/test_ili9341_implement). Lower it if the picture
+        shows noise.
+
+config UI_LVGL_BUF_LINES
+    int "LVGL draw buffer height (lines)"
+    depends on UI_ENABLE
+    range 10 40
+    default 20
+    help
+        Two buffers of (320 x lines x 2 bytes) are taken from internal RAM. The ILI9341 driver converts at most
+        12800 pixels per flush, so 40 lines is the limit.
+
+endmenu

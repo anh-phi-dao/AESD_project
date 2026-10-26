@@ -1,134 +1,97 @@
-# Giao thức MQTT – Smart Lock Door
+# Giao thức MQTT
 
-Tài liệu này là hợp đồng chung giữa firmware (ESP32-S3), trang web (`web/`) và broker.
-Khi đổi topic hoặc định dạng payload, sửa tài liệu này trước.
+Thỏa thuận chung giữa firmware, web (`web/`) và broker. Đổi topic hoặc payload thì sửa file này trước.
 
-## Nguyên tắc an toàn
+## 1. An toàn
 
-**Không có cách nào mở cửa qua mạng**, dù ở trong LAN hay từ xa. Người dùng chỉ mở cửa tại chỗ
-(keypad / NFC). Ràng buộc này được giữ ở 3 tầng:
+Không có cách nào mở cửa qua mạng. Chỉ mở tại chỗ bằng keypad / thẻ / vân tay. Ràng buộc này giữ ở 3 nơi:
 
-1. **Firmware:** không có topic lệnh mở cửa. Component nào dùng `mqtt_conn` thì **không được**
-   `REQUIRES lock_service` trong CMake. `lock_service` chỉ phát sự kiện ra `system_controller`.
-2. **Broker ACL:** tài khoản người dùng chỉ được publish vào `history/req` và `voice/in`.
-3. **Web:** thư viện `LockClient` không có hàm mở cửa.
+1. Firmware: không có topic mở cửa. Component dùng `mqtt_conn` không được `REQUIRES lock_service`.
+2. Broker: tài khoản người dùng chỉ được publish `history/req` và `voice/in`.
+3. Web: `LockClient` không có hàm mở cửa.
 
-Ngoài ra:
+Thiết bị bỏ qua message retained gửi tới, chỉ subscribe topic trong allowlist, bỏ payload quá cỡ. Thiết bị và người
+dùng dùng hai tài khoản broker khác nhau.
 
-- Thiết bị **bỏ qua mọi message retained gửi tới** (tránh việc request bị phát lại mỗi lần reconnect).
-- Thiết bị chỉ subscribe các topic trong allowlist và bỏ các payload vượt giới hạn kích thước.
-- Tài khoản broker của thiết bị và của người dùng là **hai tài khoản khác nhau**.
+## 2. Topic
 
-## Topic
+Gốc: `lock/<device_id>/`, ví dụ `lock/door01/`. Tất cả QoS 1. `ts` là Unix time (giây, UTC), thiết bị phải đồng bộ
+SNTP trước khi ghi log.
 
-Gốc topic: `lock/<device_id>/` (ví dụ `lock/door01/`).
+| Topic | Hướng | Retain | Payload |
+|---|---|---|---|
+| `status` | thiết bị → web | có | `online` / `offline` (Last Will) |
+| `event` | thiết bị → web | không | JSON sự kiện ra vào |
+| `alert` | thiết bị → web | không | JSON cảnh báo |
+| `recent` | thiết bị → web | có | JSON sự kiện và cảnh báo gần nhất |
+| `history/req` | web → thiết bị | không | JSON yêu cầu lịch sử, tối đa 256 byte |
+| `history/resp` | thiết bị → web | không | JSON một trang lịch sử |
+| `voice/out` | thiết bị → web | không | Tin nhắn thoại của khách tại cửa |
+| `voice/in` | web → thiết bị | không | Tin nhắn thoại chủ nhà gửi tới cửa (cần loa) |
 
-| Topic | Hướng | QoS | Retain | Payload |
-|---|---|---|---|---|
-| `status` | thiết bị → web | 1 | có | `online` / `offline` (offline là Last Will) |
-| `event` | thiết bị → web | 1 | không | JSON sự kiện ra/vào |
-| `alert` | thiết bị → web | 1 | không | JSON cảnh báo |
-| `recent` | thiết bị → web | 1 | có | JSON các sự kiện và cảnh báo gần nhất, kèm mã phiên `gen` |
-| `history/req` | web → thiết bị | 1 | không | JSON yêu cầu lịch sử, tối đa 256 byte |
-| `history/resp` | thiết bị → web | 1 | không | JSON một trang lịch sử |
-| `voice/out` | thiết bị → web | 1 | không | chunk nhị phân, tin nhắn thoại của khách tại cửa |
-| `voice/in` | web → thiết bị | 1 | không | chunk nhị phân, tin nhắn thoại chủ nhà gửi tới cửa (cần loa) |
+## 3. Payload
 
-Thời gian (`ts`) là Unix time tính bằng giây (UTC), nên thiết bị phải đồng bộ SNTP trước khi ghi log.
-
-### `event`
+`event`
 
 ```json
 {"id": 1024, "ts": 1790000000, "method": "pin", "result": "granted", "user": "Dat"}
 ```
 
-| Trường | Giá trị |
-|---|---|
-| `id` | số tăng dần, duy nhất trên thiết bị (dùng để phân trang lịch sử) |
-| `method` | `pin`, `nfc`, `button` (nút mở từ bên trong), `key` (chìa cơ) |
-| `result` | `granted`, `denied` |
-| `user` | tên người dùng nếu xác định được, không có thì bỏ trường |
+`method`: `pin`, `nfc`, `fingerprint`, `button` (nút bên trong), `key` (chìa cơ). `result`: `granted`, `denied`. `user` bỏ đi nếu
+không biết. `id` tăng dần, dùng để phân trang.
 
-### `alert`
+`alert`
 
 ```json
 {"id": 88, "ts": 1790000123, "level": "critical", "code": "pin_bruteforce", "msg": "Sai PIN 5 lần liên tiếp"}
 ```
 
-| Trường | Giá trị |
-|---|---|
-| `level` | `info`, `warning`, `critical` |
-| `code` | `pin_bruteforce`, `unknown_card`, `door_ajar`, `tamper`, `low_battery`, `power_lost` |
-| `msg` | mô tả ngắn cho người đọc (tùy chọn) |
+`level`: `info`, `warning`, `critical`. `code`: `pin_bruteforce`, `unknown_card`, `door_ajar`, `tamper`, `low_battery`,
+`power_lost`. `msg` tùy chọn. Cảnh báo `warning` / `critical` gửi thêm qua Telegram bot.
 
-Mọi `alert` mức `warning`/`critical` cũng được gửi qua Telegram bot, vì trang web chỉ nhận
-MQTT khi đang mở.
-
-### `recent`
+`recent`
 
 ```json
-{"gen": 3554416255, "events": [ /* object event, mới nhất trước */ ], "alerts": [ /* object alert, mới nhất trước */ ]}
+{"gen": 3554416255, "events": [/* mới nhất trước */], "alerts": [/* mới nhất trước */]}
 ```
 
-- Retained, nên trang web vừa mở đã có ngay các mục mới nhất, **kể cả khi khóa đang ngoại tuyến** (lúc đó
-  `history/req` không có ai trả lời).
-- Thiết bị publish lại sau mỗi sự kiện / cảnh báo mới, sau mỗi lần kết nối broker, và khi xóa lịch sử.
-- Tối đa 20 sự kiện và 10 cảnh báo (`EVENT_LOG_EVENT_CAPACITY`, `EVENT_LOG_ALERT_CAPACITY`). Web bỏ qua phần vượt quá 50.
-- `gen` là số nguyên ngẫu nhiên, **chỉ đổi khi lịch sử trên khóa bị xóa**. Web thấy `gen` khác bản đang hiển thị thì
-  xóa toàn bộ lịch sử và cảnh báo đang hiện. Web lưu `{deviceId, gen, id}` của cảnh báo đã xem (chỉ id, không lưu nội
-  dung) để báo những cảnh báo xảy ra trong lúc trang đóng; `gen` khác nghĩa là mọi cảnh báo trong `recent` đều mới.
-- `id` của sự kiện và của cảnh báo là hai dãy riêng, tăng dần, **không bao giờ dùng lại**, kể cả sau khi xóa lịch sử
-  hay khởi động lại (lưu trong NVS).
+Retained, nên web mở ra là có ngay dữ liệu, kể cả khi khóa đang ngoại tuyến. Thiết bị publish lại sau mỗi sự kiện,
+mỗi lần kết nối broker và khi xóa lịch sử. Tối đa 20 sự kiện và 10 cảnh báo.
 
-### `history/req` và `history/resp`
+`gen` chỉ đổi khi lịch sử trên khóa bị xóa. Web thấy `gen` khác thì xóa lịch sử đang hiện. `id` của sự kiện và cảnh
+báo là hai dãy riêng, không bao giờ dùng lại (lưu trong NVS).
+
+`history/req` và `history/resp`
 
 ```json
 {"req_id": "k3j9x2", "before_id": 1000, "limit": 20}
+{"req_id": "k3j9x2", "items": [/* event, mới nhất trước */], "more": true}
 ```
 
-- `before_id`: lấy các sự kiện có `id < before_id`; bỏ trường này để lấy trang mới nhất.
-- `limit`: 1..50, mặc định 20. Thiết bị tự giới hạn lại và bỏ qua request nếu nhận quá 4 request/giây.
-- `req_id`: 1..16 ký tự `[A-Za-z0-9_-]`; request sai định dạng bị bỏ qua, không có phản hồi.
-- Hiện thiết bị trả lời từ `app/event_log` (20 sự kiện gần nhất, lưu NVS). Khi có log trên thẻ SD, chỉ cần đổi nguồn
-  dữ liệu, định dạng giữ nguyên.
+`before_id`: lấy sự kiện có `id` nhỏ hơn, bỏ trống để lấy trang mới nhất. `limit`: 1 đến 50, mặc định 20. `req_id`:
+1 đến 16 ký tự `[A-Za-z0-9_-]`, được trả lại nguyên vẹn. Request sai định dạng hoặc quá 4 request/giây bị bỏ qua.
 
-```json
-{"req_id": "k3j9x2", "items": [ /* các object event, mới nhất trước */ ], "more": true}
-```
+## 4. Tin nhắn thoại
 
-`req_id` được trả lại nguyên vẹn để web ghép đúng response với request.
+Mỗi tin chia thành nhiều chunk. Mỗi chunk có header 16 byte (little-endian) rồi tới dữ liệu âm thanh:
 
-### `voice/out` và `voice/in`
-
-Mỗi tin nhắn thoại được chia thành nhiều chunk. Mỗi chunk gồm header 16 byte (little-endian)
-và phần dữ liệu âm thanh:
-
-| Offset | Kích thước | Trường | Ghi chú |
+| Offset | Byte | Trường | Giá trị |
 |---|---|---|---|
-| 0 | 2 | magic | `'V' 'M'` (0x56 0x4D) |
+| 0 | 2 | magic | `'V' 'M'` |
 | 2 | 1 | version | `1` |
-| 3 | 1 | codec | `0` = PCM 16-bit LE mono |
-| 4 | 4 | msg_id | uint32, ngẫu nhiên, giống nhau cho mọi chunk của một tin |
-| 8 | 2 | seq | uint16, bắt đầu từ 0 |
-| 10 | 2 | total | uint16, tổng số chunk, 1..160 |
-| 12 | 4 | sample_rate | uint32, khuyến nghị 16000 |
-| 16 | ≤ 4096 | data | độ dài chẵn |
+| 3 | 1 | codec | `0` = PCM 16-bit mono |
+| 4 | 4 | msg_id | Ngẫu nhiên, giống nhau cho mọi chunk của một tin |
+| 8 | 2 | seq | Bắt đầu từ 0 |
+| 10 | 2 | total | Tổng số chunk, 1 đến 160 |
+| 12 | 4 | sample_rate | 16000 |
+| 16 | tối đa 4096 | data | Độ dài chẵn |
 
-- Ở 16 kHz, 160 chunk × 4096 byte tương đương khoảng 20 giây. Web giới hạn tin gửi đi còn 15 giây.
-- Bên nhận bỏ tin nếu sau 30 giây chưa nhận đủ chunk.
-- INMP441 chỉ là micro, nên chiều `voice/out` làm được ngay. Chiều `voice/in` cần thêm loa
-  (ví dụ MAX98357A qua I2S); khi chưa có loa, firmware chưa cần subscribe `voice/in`.
+Tin dài tối đa khoảng 20 s, web giới hạn 15 s. Sau 30 s chưa nhận đủ chunk thì bỏ tin. Chưa có loa thì firmware chưa
+cần subscribe `voice/in`.
 
-## Broker
+## 5. Broker
 
-### Cloud (mặc định)
+Cloud (mặc định): thiết bị kết nối `mqtts://<host>:8883`, xác thực bằng certificate bundle của ESP-IDF. Web kết nối
+`wss://<host>:<port>/mqtt`. Nên chọn broker phân quyền được theo topic cho từng tài khoản.
 
-- Chọn broker cho phép **phân quyền theo topic cho từng tài khoản** (ACL). Kiểm tra lại trong gói
-  miễn phí trước khi chọn, vì không phải gói nào cũng hỗ trợ.
-- Thiết bị kết nối `mqtts://<host>:8883`, xác thực chứng chỉ bằng certificate bundle của ESP-IDF
-  (`p_ca_cert_pem = NULL`).
-- Web kết nối `wss://<host>:<port>/mqtt` (đường dẫn WebSocket tùy từng broker).
-
-### Tự host Mosquitto (tùy chọn)
-
-Xem `broker/mosquitto/`. Thiết bị truyền CA của broker qua `p_ca_cert_pem`.
+Tự host: xem `broker/mosquitto/`. Thiết bị truyền CA của broker qua `p_ca_cert_pem`.

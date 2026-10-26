@@ -3,6 +3,7 @@
  **********************************************************************************************************************/
 #include "keypad_task.h"
 #include "system_export.h"
+#include "ui_task.h"
 
 static app_err_t system_keypad_port_write(void *p_context, uint8_t value);
 static app_err_t system_keypad_port_read(void *p_context, uint8_t *p_value);

@@ -1,37 +1,33 @@
-# Đưa web lên mạng để dùng từ xa
+# Đưa web lên mạng
 
-Web chỉ gồm file tĩnh (`web/`) và **không có server riêng**. Trình duyệt kết nối thẳng tới broker MQTT qua
-`wss://`, nên người dùng ở đâu cũng xem được khóa, miễn là có Internet:
+Web chỉ là file tĩnh trong `web/`, không có server riêng. Trình duyệt kết nối thẳng tới broker qua `wss://`:
 
 ```
-Điện thoại / máy tính ──HTTPS──> host tĩnh (GitHub Pages...)   chỉ tải HTML/JS/CSS
-        │
+Điện thoại / máy tính ──HTTPS──> GitHub Pages            chỉ tải HTML/JS/CSS
         └──────────wss://:8884──> HiveMQ Cloud <──mqtts://:8883── ESP32-S3
 ```
 
-Host tĩnh không bao giờ thấy mật khẩu hay dữ liệu của khóa. Lớp bảo vệ là tài khoản trên broker. Web và MQTT
-**không có lệnh mở cửa** (xem `docs/mqtt_protocol.md`), nên kể cả khi lộ tài khoản web thì cũng không mở được cửa.
+Host tĩnh không thấy mật khẩu hay dữ liệu. Web và MQTT không có lệnh mở cửa, nên lộ tài khoản web cũng không mở được
+cửa.
 
-## Trang demo hiện tại
+## 1. Trang demo
 
-**https://project-smartlock.github.io/doorlock-remote/**
+https://project-smartlock.github.io/doorlock-remote/
 
-Trang này là **bản copy tay** của thư mục `web/`, nằm ở repo riêng `project-smartlock/doorlock-remote`
-(GitHub Pages, nhánh `main`, thư mục gốc). Merge vào `master` của repo này **không** tự cập nhật trang đó.
-Cập nhật trang demo:
+Trang này là bản copy tay của `web/`, nằm ở repo `project-smartlock/doorlock-remote` (nhánh `main`). Merge vào `master`
+của repo này không tự cập nhật trang demo. Cách cập nhật:
 
-1. Sửa và thử `web/` trên máy (`cd web`, `python -m http.server 8000`, mở `http://localhost:8000`).
-2. Copy toàn bộ nội dung `web/` sang repo `doorlock-remote` (giữ lại `README.md` và `.nojekyll` của repo đó).
-3. Commit và push lên nhánh `main` của `doorlock-remote`. Trang cập nhật sau 1–2 phút, bấm Ctrl+F5 nếu vẫn thấy bản cũ.
+1. Thử trên máy: `cd web`, `python -m http.server 8000`, mở `http://localhost:8000`.
+2. Copy nội dung `web/` sang repo `doorlock-remote`, giữ lại `README.md` và `.nojekyll` của repo đó.
+3. Push lên `main`. Sau 1 đến 2 phút trang cập nhật (Ctrl+F5 nếu vẫn thấy bản cũ).
 
-Repo này còn có workflow `.github/workflows/deploy-web.yml`: nếu chủ repo bật **Settings → Pages → Source: GitHub
-Actions**, mỗi lần `web/**` thay đổi trên `master` sẽ tự deploy lên `https://<owner>.github.io/<repo>/`. Đó là một
-trang khác với trang demo ở trên.
+Workflow `.github/workflows/deploy-web.yml` của repo này deploy lên một trang khác (`https://<owner>.github.io/<repo>/`),
+chỉ chạy khi bật Settings → Pages → Source: GitHub Actions.
 
-Host nào cũng phải có **HTTPS**. Nếu mở qua `http://` (trừ `localhost`), trình duyệt sẽ chặn kết nối `wss://`,
-chặn ghi âm micro và không cho cài app.
+Host nào cũng phải có HTTPS. Mở bằng `http://` (trừ `localhost`) thì trình duyệt chặn `wss://`, chặn micro và không cho
+cài app.
 
-## Điền sẵn broker cho người dùng
+## 2. Điền sẵn broker
 
 Sửa `web/config.js` trước khi deploy:
 
@@ -42,57 +38,40 @@ export default {
 };
 ```
 
-Giá trị nào đặt ở đây thì ô tương ứng **bị ẩn khỏi form đăng nhập**, người dùng chỉ còn nhập tài khoản và mật khẩu.
-Để trống `deviceId` khi một trang dùng cho nhiều khóa (ô mã thiết bị hiện lại). File này ai cũng tải về được, nên
-**tuyệt đối không ghi mật khẩu vào đây**.
+Ô nào đã điền ở đây thì bị ẩn khỏi form đăng nhập. Để trống `deviceId` nếu một trang dùng cho nhiều khóa. Ai cũng tải
+được file này, nên không ghi mật khẩu vào đây.
 
-## Tài khoản cho người dùng
+## 3. Tài khoản người dùng
 
-Mỗi người (hoặc mỗi gia đình) có **một MQTT credential riêng** trên HiveMQ Cloud (**Access Management**):
-- tách biệt với tài khoản của thiết bị (`mqtt_user` trong CSV);
-- khi mất điện thoại chỉ cần xóa đúng tài khoản đó.
+Mỗi người (hoặc mỗi gia đình) một tài khoản MQTT riêng trên HiveMQ Cloud (Access Management), khác tài khoản của thiết
+bị. Mất điện thoại thì chỉ cần xóa tài khoản đó.
 
-Quyền mà web cần:
-
-| Topic | Quyền |
+| Topic `lock/<id>/...` | Quyền của web |
 |---|---|
-| `lock/<id>/status`, `event`, `alert`, `recent`, `history/resp`, `voice/out` | Subscribe |
-| `lock/<id>/history/req`, `voice/in` | Publish |
+| `status`, `event`, `alert`, `recent`, `history/resp`, `voice/out` | Subscribe |
+| `history/req`, `voice/in` | Publish |
 
-Gói miễn phí của HiveMQ Cloud có thể không giới hạn được quyền theo từng topic. Nếu vậy, tài khoản web có thể
-publish giả sự kiện hoặc cảnh báo, nhưng **vẫn không mở được cửa**. Khi cần phân quyền đúng như bảng trên, dùng
-Mosquitto tự host với `broker/mosquitto/acl.example`.
+Gói miễn phí của HiveMQ có thể không phân quyền được theo topic. Khi đó web có thể publish sự kiện giả, nhưng vẫn không
+mở được cửa. Cần phân quyền đúng thì dùng Mosquitto tự host với `broker/mosquitto/acl.example`.
 
-## Giới hạn: mạng 4G chặn cổng 8884
+## 4. Cài như app
 
-HiveMQ Cloud gói miễn phí chỉ nhận WebSocket ở **cổng 8884**. Một số mạng 4G chặn cổng này: trang vẫn tải được nhưng
-đăng nhập báo **"Broker không phản hồi. Kiểm tra cổng và đường dẫn WebSocket"**, trong khi cùng thiết bị dùng WiFi thì
-vào được. Khi demo, dùng WiFi hoặc hotspot của nhà mạng khác. Muốn chạy được trên mọi mạng thì cần broker (hoặc
-proxy) nhận WebSocket ở cổng 443.
+Android (Chrome): menu ⋮ → Cài đặt ứng dụng. iPhone (Safari): Chia sẻ → Thêm vào MH chính (ghi âm cần iOS 16.4 trở lên).
 
-## Cài như app trên điện thoại
+## 5. Giới hạn
 
-Web là PWA (`manifest.webmanifest` + `sw.js`):
-- **Android (Chrome):** menu ⋮ → **Cài đặt ứng dụng** / **Thêm vào màn hình chính**.
-- **iPhone (Safari):** nút Chia sẻ → **Thêm vào MH chính**. Cần iOS 16.4 trở lên để ghi âm trong chế độ app.
+Mạng 4G chặn cổng 8884: trang tải được nhưng đăng nhập báo "Broker không phản hồi". Khi demo dùng WiFi hoặc hotspot nhà
+mạng khác. Muốn chạy mọi mạng thì cần broker hoặc proxy nhận WebSocket ở cổng 443.
 
-App mở toàn màn hình, có icon riêng và mở được giao diện kể cả khi mạng chập chờn. Dữ liệu vẫn cần kết nối
-tới broker.
+Web chỉ nhận cảnh báo khi app đang mở. Mở lại thì trang báo các cảnh báo đã lỡ. Thông báo nền sẽ đi qua Telegram bot
+hoặc ntfy (việc tiếp theo).
 
-## Giới hạn: thông báo khi đóng app
+## 6. Bảo mật
 
-MQTT qua WebSocket **chỉ chạy khi app đang mở**. Khi đóng app hoặc khóa màn hình điện thoại, web không nhận
-cảnh báo nữa (khi mở lại, trang báo các cảnh báo đã lỡ). Thông báo nền (trộm cạy cửa, nhập sai PIN...) sẽ đi qua
-**Telegram bot/ntfy** (việc tiếp theo). Web Push thật thì cần thêm một server, để giai đoạn sau.
+CSP trong `index.html` chỉ cho chạy script của trang và `cdn.jsdelivr.net`. Dữ liệu từ broker luôn hiển thị bằng
+`textContent`.
 
-## Bảo mật của trang public
+mqtt.js được ghim phiên bản và có `integrity` (SRI). Khi nâng phiên bản: sửa URL ở `index.html` và `sw.js`, tính lại
+`integrity` bằng `curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A`, rồi tăng `CACHE` trong `sw.js`.
 
-- **CSP** trong `index.html`: chỉ cho chạy script của trang và `cdn.jsdelivr.net`, không có inline script.
-  Dữ liệu từ broker luôn hiển thị bằng `textContent`.
-- **mqtt.js được ghim phiên bản và có SRI** (`integrity`). Nếu CDN bị sửa file, trình duyệt sẽ từ chối chạy.
-  Khi nâng phiên bản:
-  1. sửa URL ở `index.html` và `sw.js`;
-  2. tính lại mã `integrity`: `curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A`;
-  3. tăng `CACHE` trong `sw.js` (`smartlock-v2`...).
-- Không lưu mật khẩu trong trình duyệt. Chỉ tên đăng nhập (và URL, mã thiết bị khi `config.js` để trống) được nhớ
-  nếu người dùng chọn.
+Trình duyệt không lưu mật khẩu, chỉ nhớ tên đăng nhập nếu người dùng chọn.

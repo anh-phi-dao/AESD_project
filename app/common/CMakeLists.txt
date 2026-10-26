@@ -6,15 +6,18 @@ set(DEVICE_REQUIRES keypad
 set(APP_REQUIRES auth_manager 
                  system_controller
                  device_config 
-                 network_manager 
+                 network_manager
+                 lvgl_port 
                  mqtt_client 
                  event_log 
-                 remote_service 
+                 remote_service
+                 ui_service
                  door_sim)
 idf_component_register(SRCS "system_task.c" 
                             "rfid_task.c" 
                             "network_task.c" 
                             "keypad_task.c"
                             "system_task.c"
+                            "ui_task.c"
                        INCLUDE_DIRS "."
                        REQUIRES util driver ${DEVICE_REQUIRES} ${APP_REQUIRES})
