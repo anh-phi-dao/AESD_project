@@ -57,5 +57,6 @@ void app_main(void)
     boot_pcf7584();
     xTaskCreate(keypad_task, "keypad", 4096, NULL, 1, NULL);
     xTaskCreate(rfid_task, "rfid_task", 4096, NULL, 1, NULL);
+    xTaskCreate(uid_task, "uid_task", 4096, NULL, 1, NULL);
     xTaskCreate(system_control_task, "system_control", 4096, NULL, 1, NULL);
 }

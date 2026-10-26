@@ -236,6 +236,20 @@ static void pcf7584_keypad_pressed_hold_action(void)
     char hold_key = keypad_state_to_map_read(&keypad_state);
     switch (hold_key)
     {
+        case ADD_UID:
+            ESP_LOGI(KEYPAD_TAG, "Keypad add UID");
+            if (device_mode.mode_id == ADMIN_MODE)
+            {
+                if (get_device_admin_mode_state(&device_mode) == ADMIN_LOGGED_IN)
+                {
+                    device_mode.mode_update_state(&device_mode, ADMIN_ADD_UID, false);
+                }
+            }
+            else
+            {
+                ESP_LOGI(KEYPAD_TAG, "Usermode is not allowed to add UID");
+            }
+            break;
         case ENTER_PASSWORD:
             ESP_LOGI(KEYPAD_TAG, "Keypad input before password : %s", device_mode.mode_password_ptr->input_password);
             if (get_device_admin_mode_state(&device_mode) == ADMIN_CHANGE_PASSWORD)

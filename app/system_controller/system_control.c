@@ -335,6 +335,12 @@ static app_err_t update_state_for_admin_mode(mode_management_t *mode, uint8_t ne
         case ADMIN_CHANGE_PASSWORD:
             mode->mode_state = ADMIN_CHANGE_PASSWORD;
             break;
+        case ADMIN_ADD_UID:
+            mode->mode_state = ADMIN_ADD_UID;
+            break;
+        case ADMIN_DELETE_UID:
+            mode->mode_state = ADMIN_DELETE_UID;
+            break;
         /*TODO: thêm các case khác cho state bổ sung của admin*/
         default:
 #if USED_FREERTOS

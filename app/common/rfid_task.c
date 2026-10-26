@@ -7,6 +7,11 @@
 
 static const char *TAG = "ntag_read";
 pn532_io_t         pn532_io;
+uint8_t            uid[] = {0, 0, 0, 0, 0, 0, 0, 0}; // Buffer to store the returned UID
+
+uint8_t uid_length; // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
+
+SemaphoreHandle_t uid_mutex;
 
 void boot_rfid(void)
 {
@@ -42,28 +47,64 @@ void boot_rfid(void)
     ESP_LOGI(TAG, "Firmware ver. %d.%d", (int)(version_data >> 16) & 0xFF, (int)(version_data >> 8) & 0xFF);
 
     ESP_LOGI(TAG, "Waiting for an ISO14443A Card ...");
+
+    uid_mutex = xSemaphoreCreateMutex();
+    if (uid_mutex == NULL)
+    {
+        ESP_LOGE(TAG, "Failed to create mutex for UID list");
+        while (1)
+        {
+            vTaskDelay(pdMS_TO_TICKS(2000));
+        }
+    }
 }
 
 void rfid_task(void *pvParameter)
 {
     esp_err_t err;
+    if (uid_mutex == NULL)
+    {
+        ESP_LOGE(TAG, "UID mutex is not initialized");
+        return;
+    }
+
     while (1)
     {
-        uint8_t uid[] = {0, 0, 0, 0, 0, 0, 0}; // Buffer to store the returned UID
-        uint8_t uid_length;                    // Length of the UID (4 or 7 bytes depending on ISO14443A card type)
+        if (xSemaphoreTake(uid_mutex, pdMS_TO_TICKS(1000)) != pdTRUE)
+        {
+            ESP_LOGW(TAG, "Failed to take mutex for UID list");
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+        memset(uid, 0, sizeof(uid));
+        uid_length = 0;
+        xSemaphoreGive(uid_mutex);
 
+        uint8_t read_uid[sizeof(uid)] = {0};
+        uint8_t read_uid_length       = 0;
         // Wait for an ISO14443A type cards (Mifare, etc.).  When one is found
         // 'uid' will be populated with the UID, and uid_length will indicate
         // if the uid is 4 bytes (Mifare Classic) or 7 bytes (Mifare Ultralight)
-        err = pn532_read_passive_target_id(&pn532_io, PN532_BRTY_ISO14443A_106KBPS, uid, &uid_length, 0);
+
+        err = pn532_read_passive_target_id(&pn532_io, PN532_BRTY_ISO14443A_106KBPS, read_uid, &read_uid_length, 0);
 
         if (ESP_OK == err)
         {
+            if (xSemaphoreTake(uid_mutex, pdMS_TO_TICKS(1000)) != pdTRUE)
+            {
+                ESP_LOGW(TAG, "Failed to take mutex to update UID");
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
+            memcpy(uid, read_uid, sizeof(uid));
+            uid_length = read_uid_length;
+            xSemaphoreGive(uid_mutex);
+
             // Display some basic information about the card
             ESP_LOGI(TAG, "\nFound an ISO14443A card");
-            ESP_LOGI(TAG, "UID Length: %d bytes", uid_length);
+            ESP_LOGI(TAG, "UID Length: %d bytes", read_uid_length);
             ESP_LOGI(TAG, "UID Value:");
-            ESP_LOG_BUFFER_HEX_LEVEL(TAG, uid, uid_length, ESP_LOG_INFO);
+            ESP_LOG_BUFFER_HEX_LEVEL(TAG, read_uid, read_uid_length, ESP_LOG_INFO);
 
             err = pn532_in_list_passive_target(&pn532_io);
             if (err != ESP_OK)
@@ -116,7 +157,128 @@ void rfid_task(void *pvParameter)
                     break;
                 }
             }
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            vTaskDelay(pdMS_TO_TICKS(1000));
         }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+static void uid_action_when_uid_read(void)
+{
+    uint8_t current_mode_state = 0U;
+
+    if (xSemaphoreTake(device_mode.mode_mutex, portMAX_DELAY) != pdTRUE)
+    {
+        ESP_LOGI(RFID_TAG, "Error system mutex");
+        return;
+    }
+    current_mode_state = device_mode.mode_state;
+    xSemaphoreGive(device_mode.mode_mutex);
+
+    switch (current_mode_state)
+    {
+        case USER_ENTERING_PASSWORD:
+            ESP_LOGI(RFID_TAG, "Checking UID while user is entering password");
+            if (validate_uid(uid, uid_length, &uids_head) == 1)
+            {
+                ESP_LOGI(RFID_TAG, "UID is valid, opening lock");
+                device_mode.mode_update_state(&device_mode, USER_OPEN_LOCK, true);
+            }
+            else
+            {
+                ESP_LOGI(RFID_TAG, "UID is invalid");
+                device_mode.mode_update_state(&device_mode, USER_WRONG_PASSWORD, true);
+            }
+            break;
+        case ADMIN_ADD_UID:
+            /*Tạm thời chưa có UID cho ADMIN, có sẽ thêm sau*/
+            ESP_LOGI(RFID_TAG, "Adding UID mode");
+            if (add_uid_to_list(&uids_head, uid, uid_length) != NULL)
+            {
+                ESP_LOGI(RFID_TAG, "UID added successfully");
+            }
+            else
+            {
+                ESP_LOGI(RFID_TAG, "Failed to add UID");
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void uid_action_when_no_uid_read(void)
+{
+    uint8_t current_mode_state = 0U;
+
+    if (xSemaphoreTake(device_mode.mode_mutex, portMAX_DELAY) != pdTRUE)
+    {
+        ESP_LOGI(RFID_TAG, "Error system mutex");
+        return;
+    }
+    current_mode_state = device_mode.mode_state;
+    xSemaphoreGive(device_mode.mode_mutex);
+
+    switch (current_mode_state)
+    {
+        case ADMIN_ADD_UID:
+            ESP_LOGI(RFID_TAG, "Adding UID mode");
+            break;
+        case ADMIN_DELETE_UID:
+            ESP_LOGI(RFID_TAG, "Deleting UID mode");
+            remove_uid_from_list(&uids_head, uid, uid_length);
+            device_mode.mode_update_state(&device_mode, ADMIN_LOGGED_IN, false);
+            break;
+        default:
+            break;
+    }
+}
+
+void uid_task(void *pvParameter)
+{
+    if (uid_mutex == NULL)
+    {
+        ESP_LOGE(TAG, "UID mutex is not initialized");
+        return;
+    }
+
+    while (1)
+    {
+        if (xSemaphoreTake(uid_mutex, pdMS_TO_TICKS(1000)) != pdTRUE)
+        {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
+        uint8_t current_uid[sizeof(uid)];
+        uint8_t current_uid_length = uid_length;
+        memcpy(current_uid, uid, sizeof(current_uid));
+
+        struct list_head     *pos;
+        uid_memory_storage_t *entry;
+
+        ESP_LOGI(RFID_TAG, "Current UID list:");
+        list_for_each(pos, &uids_head)
+        {
+            entry = list_entry(pos, uid_memory_storage_t, list);
+            ESP_LOGI(RFID_TAG, "UID: ");
+            ESP_LOG_BUFFER_HEX_LEVEL(RFID_TAG, entry->uid, entry->uid_length, ESP_LOG_INFO);
+        }
+
+        xSemaphoreGive(uid_mutex);
+
+        if (current_uid_length > 0)
+        {
+            ESP_LOGI(RFID_TAG, "Current UID: ");
+            ESP_LOG_BUFFER_HEX_LEVEL(RFID_TAG, current_uid, current_uid_length, ESP_LOG_INFO);
+            uid_action_when_uid_read();
+        }
+        else
+        {
+            ESP_LOGI(RFID_TAG, "No UID read yet.");
+            uid_action_when_no_uid_read();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

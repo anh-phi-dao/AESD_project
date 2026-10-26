@@ -125,11 +125,12 @@ void system_control_task(void *pvParameter)
                 system_user_open_lock_action();
                 break;
             case USER_WRONG_PASSWORD:
-                ESP_LOGI(SYSTEM_CONTROL_TAG, "User entered wrong password, no opening door");
+                ESP_LOGI(SYSTEM_CONTROL_TAG, "User entered wrong password or use invalid UID, no opening door");
                 system_common_wrong_password();
                 break;
             case USER_LOCK_SYSTEM:
-                ESP_LOGI(SYSTEM_CONTROL_TAG, "User entered wrong password too much time, locking system");
+                ESP_LOGI(SYSTEM_CONTROL_TAG,
+                         "User entered wrong password or use invalid UID too much time, locking system");
                 system_common_lock_system();
                 break;
 
