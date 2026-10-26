@@ -22,7 +22,7 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 | Telegram bot | Chưa làm |
 | Lưu log ra vào lên thẻ SD | Chưa làm |
 | Tin nhắn thoại trên firmware (INMP441, loa) | Chưa làm; web đã sẵn sàng |
-| Màn hình TFT ILI9341 + LVGL (`device/ili9341_tft_display`, `middleware/lvgl_port`, `app/ui_service`) | Đã có giao diện SquareLine (người dùng + admin), keypad gõ được vào màn hình. Chưa nối với lock_service ([docs/tft_ui.md](docs/tft_ui.md)) |
+| Màn hình TFT ILI9341 + LVGL (`device/ili9341_tft_display`, `middleware/lvgl_port`, `app/ui_service`) | Đã có giao diện SquareLine (một project: 6 màn hình + popup, gồm cả admin), keypad gõ được vào màn hình. Chưa nối với lock_service ([docs/tft_ui.md](docs/tft_ui.md)) |
 | Solenoid, NFC (PN532), audio | Chưa làm |
 
 ---
@@ -39,7 +39,7 @@ AESD_project/
 │   ├── event_log/       NEW  Gán id, giữ sự kiện/cảnh báo gần nhất trong NVS, mã phiên gen
 │   ├── remote_service/  NEW  Một task publish event/alert/recent, trả lời history/req
 │   ├── door_sim/        NEW  Giả lập keypad/NFC/cảm biến cho board dev (nút BOOT, lệnh "sim")
-│   ├── ui_service/      NEW  Màn hình: nạp giao diện SquareLine trong ui/ (người dùng) và ui_admin/ (admin), nhận phím keypad
+│   ├── ui_service/      NEW  Màn hình: nạp giao diện SquareLine trong ui/, chuyển màn hình, popup, nhận phím keypad
 │   ├── lock_service/ ...     (chưa có code)
 ├── device/                   Driver phần cứng (pcf8574, keypad, ili9341_tft_display, ...)
 ├── middleware/

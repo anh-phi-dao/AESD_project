@@ -13,7 +13,6 @@ extern "C" {
 // SCREEN: ui_Voice
 extern void ui_Voice_screen_init(void);
 extern void ui_Voice_screen_destroy(void);
-extern void ui_event_Voice(lv_event_t * e);
 extern lv_obj_t * ui_Voice;
 extern lv_obj_t * ui_VoiceIcon;
 extern lv_obj_t * ui_VoiceTitle;
@@ -22,10 +21,6 @@ extern lv_obj_t * ui_VoiceFill;
 extern lv_obj_t * ui_VoiceTime;
 extern lv_obj_t * ui_VoiceHint;
 extern lv_obj_t * ui_VoiceHintText;
-extern lv_obj_t * ui_VoiceWifi;
-extern lv_obj_t * ui_VoiceWifiOff;
-extern lv_obj_t * ui_VoiceBattery;
-extern lv_obj_t * ui_VoiceBatteryPct;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
