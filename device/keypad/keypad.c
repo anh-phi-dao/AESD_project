@@ -356,3 +356,22 @@ static bool keypad_is_ghost_detected(const keypad_config_t *const p_cfg, uint16_
 
     return false;
 }
+
+char keypad_state_to_map_read(const keypad_state_t *const p_state)
+{
+    for (uint8_t key_index = 0U; key_index < (KEYPAD_MAX_ROW_COUNT * KEYPAD_MAX_COLUMN_COUNT); key_index++)
+    {
+        if ((p_state->pressed_keys & (uint16_t)(1U << key_index)) != 0U)
+        {
+            if (p_state->state == BUTTON_PRESSED_RELEASED)
+            {
+                return s_keypad_keymap[key_index];
+            }
+            else if (p_state->state == BUTTON_PRESSED_HOLD)
+            {
+                return s_hold_keypad_keymap[key_index];
+            }
+        }
+    }
+    return '\0';
+}

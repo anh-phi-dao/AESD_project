@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include "pcf8574_config.h"
 #include "app_err.h"
 #include "esp_err.h"
@@ -27,8 +28,8 @@
 /* PCF8574 uses quasi-bidirectional pins: writing 1 releases a pin so it can be
  * read as an input, while writing 0
  * actively sinks the pin LOW. */
-#define PCF8574_PORT_ALL_HIGH   UINT8_MAX
-#define PCF8574_PORT_ALL_LOW    0x00U
+#define PCF8574_PORT_ALL_HIGH UINT8_MAX
+#define PCF8574_PORT_ALL_LOW  0x00U
 
 /***********************************************************************************************************************
 
@@ -84,7 +85,9 @@ extern "C"
 #endif
 
     /* Attach to/create the I2C bus, register the PCF8574, and optionally start INT processing. */
-    app_err_t pcf8574_init(pcf8574_instance_ctrl_t *const p_ctrl, const pcf8574_config_t *const p_cfg);
+    app_err_t pcf8574_init(pcf8574_instance_ctrl_t *const p_ctrl,
+                           const pcf8574_config_t *const  p_cfg,
+                           bool                           i2c_bus_first_start_up);
 
     /* Stop interrupt processing and release resources owned by this instance. */
     app_err_t pcf8574_deinit(pcf8574_instance_ctrl_t *const p_ctrl);

@@ -14,7 +14,7 @@
  * @retval APP_SUCCESS             Password initialized successfully.
  * @retval APP_ERR_INVALID_ARGUMENT Invalid password length.
  */
-app_err_t init_device_password(password_handle_t *device_password, uint16_t length, const char *init_password)
+app_err_t init_password(password_handle_t *device_password, uint16_t length, const char *init_password)
 {
     if (length < 1 || length > MAX_PASSWORD_LENGTH)
     {
@@ -25,8 +25,9 @@ app_err_t init_device_password(password_handle_t *device_password, uint16_t leng
         return APP_ERR_INVALID_ARGUMENT;
     }
 
-    device_password->length        = length;
-    device_password->current_index = 0;
+    device_password->current_index      = 0;
+    device_password->full               = false;
+    device_password->failed_valid_count = 0;
     memcpy(device_password->password, init_password, length);
     return APP_SUCCESS;
 }
@@ -39,23 +40,18 @@ app_err_t init_device_password(password_handle_t *device_password, uint16_t leng
  *
  * @return Authentication status.
  */
-uint8_t fill_password(keypad_state_t *p_state, password_handle_t *device_password)
+uint8_t fill_password(char key, password_handle_t *device_password)
 {
-    char    key    = 0;
-    uint8_t status = AUTHEN_NONE;
+    uint8_t status = FILLING_PASSWORD;
 
-    for (uint8_t key_index = 0U; key_index < (KEYPAD_MAX_ROW_COUNT * KEYPAD_MAX_COLUMN_COUNT); key_index++)
+    if (device_password->full)
     {
-        if ((p_state->pressed_keys & (uint16_t)(1U << key_index)) != 0U)
-        {
-            key = s_keypad_keymap[key_index];
-            break;
-        }
+        return NO_MORE_SPACE;
     }
 
     if (!key)
     {
-        return AUTHEN_NONE;
+        return ERROR_FILLING_PASSWORD;
     }
 
 #ifdef DEBUG_PASSWORD
@@ -73,27 +69,61 @@ uint8_t fill_password(keypad_state_t *p_state, password_handle_t *device_passwor
 
     device_password->current_index++;
 
-    if (device_password->current_index >= device_password->length)
+    if (device_password->current_index > MAX_PASSWORD_LENGTH)
     {
-#ifdef DEBUG_PASSWORD
-        ESP_LOGI("fill_password", "Reset input password");
-#endif
-
-        device_password->current_index = 0;
-
-        if (!strncmp(device_password->password, device_password->input_password, device_password->length))
-        {
-            status = AUTHEN_SUCCESS;
-        }
-        else
-        {
-            status = AUTHEN_FAILED;
-        }
-
-        memset(device_password->input_password, 0, strlen(device_password->input_password));
+        device_password->full = true;
+        ESP_LOGI(PASSWORD_DEBUG_TAG, "User should validate password or admin should validate or change password");
+        status = FILLING_ENOUGH;
     }
 
     return status;
+}
+
+uint8_t validate_password(password_handle_t *device_password)
+{
+    /*simple validate password*/
+    uint8_t status = AUTHEN_FAILED;
+    if (!strcmp(device_password->input_password, device_password->password))
+    {
+        status = AUTHEN_SUCCESS;
+    }
+    memset(device_password->input_password, 0, strlen(device_password->input_password));
+    device_password->current_index = 0;
+    switch (status)
+    {
+        case AUTHEN_SUCCESS:
+            device_password->failed_valid_count = 0;
+            break;
+        case AUTHEN_FAILED:
+            device_password->failed_valid_count++;
+            break;
+        default:
+            break;
+    }
+
+    return status;
+    /*TODO : Sử dụng các thuật toán bảo mật để validate trên các chuỗi đã được mã hóa*/
+}
+
+app_err_t change_password(password_handle_t *device_password)
+{
+    size_t input_length = strlen(device_password->input_password);
+    if (!input_length || input_length > MAX_PASSWORD_LENGTH)
+    {
+        return APP_ERR_INVALID_ARGUMENT;
+    }
+    if (device_password->interacted_password == NULL)
+    {
+        return APP_ERR_INVALID_POINTER;
+    }
+    /*Chỗ này sẽ thế bằng việc ghi đè xuống sd card hoặc thêm tác vụ để lưu trữ xuống sd card*/
+    memset(device_password->interacted_password->password, 0, strlen(device_password->interacted_password->password));
+    memcpy(device_password->interacted_password->password,
+           device_password->input_password,
+           strlen(device_password->input_password));
+    memset(device_password->input_password, 0, strlen(device_password->input_password));
+    device_password->current_index = 0;
+    return APP_SUCCESS;
 }
 
 /**
@@ -103,12 +133,8 @@ uint8_t fill_password(keypad_state_t *p_state, password_handle_t *device_passwor
  *
  * @retval APP_SUCCESS Password deinitialized successfully.
  */
-app_err_t deinit_device_password(password_handle_t *device_password)
+app_err_t deinit_password(password_handle_t *device_password)
 {
-    if (device_password->length > 0)
-    {
-        device_password->length = 0;
-    }
 
     memset(device_password->input_password, 0, strlen(device_password->input_password));
     memset(device_password->password, 0, strlen(device_password->password));

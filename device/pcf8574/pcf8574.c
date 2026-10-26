@@ -11,15 +11,15 @@
  * Macro definitions
  **********************************************************************************B************************************/
 
-#define PCF8574_TAG               "PCF8574"
-#define PCF8574_I2C_TIMEOUT_MS    1000
-#define PCF8574_SCAN_FIRST_ADDR   0x08U
-#define PCF8574_SCAN_END_ADDR     0x78U
-#define PCF8574_SCAN_TIMEOUT_MS   50
+#define PCF8574_TAG             "PCF8574"
+#define PCF8574_I2C_TIMEOUT_MS  1000
+#define PCF8574_SCAN_FIRST_ADDR 0x08U
+#define PCF8574_SCAN_END_ADDR   0x78U
+#define PCF8574_SCAN_TIMEOUT_MS 50
 
 #if USED_FREERTOS
-#define PCF8574_INTR_STACK_SIZE      3072
-#define PCF8574_INTR_TASK_PRIORITY   5
+#define PCF8574_INTR_STACK_SIZE    3072
+#define PCF8574_INTR_TASK_PRIORITY 5
 #endif
 
 /***********************************************************************************************************************
@@ -32,7 +32,9 @@
 
 static esp_err_t pcf8574_release(pcf8574_instance_ctrl_t *const p_ctrl);
 static app_err_t pcf8574_validate_init_args(pcf8574_instance_ctrl_t *const p_ctrl, const pcf8574_config_t *const p_cfg);
-static esp_err_t pcf8574_setup_i2c_bus(pcf8574_instance_ctrl_t *const p_ctrl, const pcf8574_config_t *const p_cfg);
+static esp_err_t pcf8574_setup_i2c_bus(pcf8574_instance_ctrl_t *const p_ctrl,
+                                       const pcf8574_config_t *const  p_cfg,
+                                       bool                           i2c_bus_first_start_up);
 static esp_err_t pcf8574_setup_i2c_device(pcf8574_instance_ctrl_t *const p_ctrl, const pcf8574_config_t *const p_cfg);
 #if USED_FREERTOS
 static app_err_t pcf8574_create_i2c_transfer_mutex(pcf8574_instance_ctrl_t *const p_ctrl);
@@ -59,7 +61,9 @@ static void      pcf8574_intr_task(void *p_api_ctrl);
  * @retval APP_ERR_NO_MEMORY            A required driver resource could not be allocated.
  * @return                              A mapped hardware or system error can also be returned.
  **********************************************************************************************************************/
-app_err_t pcf8574_init(pcf8574_instance_ctrl_t *const p_ctrl, const pcf8574_config_t *const p_cfg)
+app_err_t pcf8574_init(pcf8574_instance_ctrl_t *const p_ctrl,
+                       const pcf8574_config_t *const  p_cfg,
+                       bool                           i2c_bus_first_start_up)
 {
     app_err_t app_ret = pcf8574_validate_init_args(p_ctrl, p_cfg);
     if (app_ret != APP_SUCCESS)
@@ -81,7 +85,7 @@ app_err_t pcf8574_init(pcf8574_instance_ctrl_t *const p_ctrl, const pcf8574_conf
     }
 #endif
 
-    ret = pcf8574_setup_i2c_bus(p_ctrl, p_cfg);
+    ret = pcf8574_setup_i2c_bus(p_ctrl, p_cfg, i2c_bus_first_start_up);
     if (ret != ESP_OK)
     {
         goto fail;
@@ -421,19 +425,33 @@ static app_err_t pcf8574_create_i2c_transfer_mutex(pcf8574_instance_ctrl_t *cons
  * * Attaches to the caller-provided I2C bus or creates a bus owned by this instance.
 
  * **********************************************************************************************************************/
-static esp_err_t pcf8574_setup_i2c_bus(pcf8574_instance_ctrl_t *const p_ctrl, const pcf8574_config_t *const p_cfg)
+static esp_err_t pcf8574_setup_i2c_bus(pcf8574_instance_ctrl_t *const p_ctrl,
+                                       const pcf8574_config_t *const  p_cfg,
+                                       bool                           i2c_bus_first_start_up)
 {
     p_ctrl->p_i2c_bus = p_cfg->p_i2c_bus_handle;
     if (p_ctrl->p_i2c_bus != NULL)
     {
         return ESP_OK;
     }
-
-    esp_err_t ret = i2c_new_master_bus(&p_cfg->i2c_bus_config, &p_ctrl->p_i2c_bus);
-    if (ret == ESP_OK)
+    esp_err_t ret;
+    if (i2c_bus_first_start_up)
     {
-        p_ctrl->bus_created = true;
+        ret = i2c_new_master_bus(&p_cfg->i2c_bus_config, &p_ctrl->p_i2c_bus);
+        if (ret == ESP_OK)
+        {
+            p_ctrl->bus_created = true;
+        }
     }
+    else
+    {
+        ret = i2c_master_get_bus_handle(p_cfg->i2c_bus_config.i2c_port, &p_ctrl->p_i2c_bus);
+        if (ret == ESP_OK)
+        {
+            p_ctrl->bus_created = true;
+        }
+    }
+
     return ret;
 }
 
