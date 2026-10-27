@@ -23,9 +23,9 @@
 
 /* ---------------- Pin definitions ---------------- */
 /* INMP441 microphone (I2S RX) */
-#define MIC_WS_PIN  4 /* LRCLK / WS */
-#define MIC_SD_PIN  6 /* DATA       */
-#define MIC_SCK_PIN 5 /* BCLK       */
+#define MIC_WS_PIN  40 /* LRCLK / WS */
+#define MIC_SD_PIN  17 /* DATA       */
+#define MIC_SCK_PIN 39 /* BCLK       */
 
 #define AUDIO_MIC_PORT I2S_NUM_0
 

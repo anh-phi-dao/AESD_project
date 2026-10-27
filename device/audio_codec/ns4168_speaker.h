@@ -17,9 +17,9 @@
  * Macro definitions
  ******************************************************************************************************************/
 
-#define SPK_DOUT_PIN 7  /* DIN / DATA_OUT   */
-#define SPK_BCLK_PIN 15 /* CLK / BCLK       */
-#define SPK_LRC_PIN  16 /* LRC / LRCLK / WS */
+#define SPK_DOUT_PIN 16 /* DIN / DATA_OUT   */
+#define SPK_BCLK_PIN 39 /* CLK / BCLK       */
+#define SPK_LRC_PIN  40 /* LRC / LRCLK / WS */
 
 #define AUDIO_SPK_PORT I2S_NUM_1
 
