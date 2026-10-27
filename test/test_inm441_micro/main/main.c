@@ -50,7 +50,7 @@ void        app_main(void)
         {
             // Convert mono to stereo
             audio_mono_to_stereo((int16_t *)mic_buffer, (int16_t *)spk_buffer, bytes_read / 2);
-
+            ns4168_speaker_adjust_volume((int16_t *)spk_buffer, bytes_read / 2, 100); // Adjust volume to 50%
             size_t bytes_written = 0;
             ns4168_speaker_write(spk_buffer, bytes_read * 2, &bytes_written, 100);
         }
