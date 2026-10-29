@@ -22,7 +22,7 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 | Telegram bot | Chưa làm |
 | Lưu log ra vào lên thẻ SD | Chưa làm |
 | Tin nhắn thoại trên firmware (INMP441, loa) | Chưa làm; web đã sẵn sàng |
-| Màn hình TFT ILI9341 + LVGL (`device/ili9341_tft_display`, `middleware/lvgl_port`, `app/ui_service`) | Đã có giao diện SquareLine (một project: 6 màn hình + popup, gồm cả admin), keypad gõ được vào màn hình. `ui_flow_task` chuyển màn hình theo phím: PIN, khóa tạm, admin (thêm/xóa PIN), ghi âm (chưa có tiếng). Chưa nối với solenoid ([docs/ui_data.md](docs/ui_data.md)) |
+| Màn hình TFT ILI9341 + LVGL (`device/ili9341_tft_display`, `middleware/lvgl_port`, `app/ui_service`) | Đã có giao diện SquareLine (một project: 6 màn hình + popup, gồm cả admin). Phím chạy theo màn hình: `system_control` quyết định (PIN, thẻ, khóa tạm, admin, ghi âm), `ui_flow_task` chỉ hiển thị ([docs/ui_data.md](docs/ui_data.md)) |
 | Solenoid, NFC (PN532), audio | Chưa làm |
 
 ---
@@ -33,7 +33,7 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 AESD_project/
 ├── main/   Điểm vào: khởi tạo NVS, task mạng, màn hình, keypad (đang test)
 ├── app/
-│   ├── common/          Task chung: network_task, keypad_task, ui_task (nối màn hình với LVGL và keypad), ui_flow_task (luồng màn hình)
+│   ├── common/          Task chung: network_task, keypad_task, ui_task (khởi động màn hình), ui_flow_task (màn hình theo system_control), system_task, rfid_task
 │   ├── device_config/ NEW Đọc credential từ partition "devcfg"
 │   ├── network_manager/  NEW  WiFi STA, tự kết nối lại, SNTP, chờ "có IP + đúng giờ"
 │   ├── event_log/       NEW  Gán id, giữ sự kiện/cảnh báo gần nhất trong NVS, mã phiên gen

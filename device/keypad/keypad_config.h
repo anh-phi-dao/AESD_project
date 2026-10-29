@@ -19,10 +19,19 @@
 #error "KEYPAD_CFG_PARAMETER_CHECKING must be 0 or 1"
 #endif
 
-#define KEYPAD_MAX_ROW_COUNT      4U
-#define KEYPAD_MAX_COLUMN_COUNT   3U
-#define KEYPAD_RELEASED_PATTERN   UINT8_MAX
-#define KEYPAD_IDLE_PATTERN       0xF0U
+#define KEYPAD_MAX_ROW_COUNT    4U
+#define KEYPAD_MAX_COLUMN_COUNT 3U
+#define KEYPAD_RELEASED_PATTERN UINT8_MAX
+#define KEYPAD_IDLE_PATTERN     0xF0U
+
+enum
+{
+    BUTTON_RELEASE,
+    BUTTON_PRESSED,
+    BUTTON_PRESSED_RELEASED,
+    BUTTON_PRESSED_HOLD,
+    BUTTON_HOLDING
+};
 
 /* Temporary board mapping for the 4x3 keypad connected to the PCF8574. */
 static const uint8_t s_keypad_row_masks[KEYPAD_MAX_ROW_COUNT] = {

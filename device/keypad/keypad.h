@@ -31,6 +31,7 @@ typedef struct st_keypad_port_api
 typedef struct st_keypad_state
 {
     uint16_t pressed_keys;   /* Bitmask of currently pressed keys. */
+    uint8_t  state;          /* Pressed-Released or Pressed-Hold*/
     bool     ghost_detected; /* True if a ghost key press is detected. */
 } keypad_state_t;
 
@@ -75,6 +76,8 @@ extern "C"
     app_err_t keypad_deinit(keypad_instance_ctrl_t *const p_ctrl);
 
     app_err_t keypad_scan(keypad_instance_ctrl_t *const p_ctrl, keypad_state_t *const p_state);
+
+    char keypad_state_to_map_read(const keypad_state_t *const p_state);
 
 #ifdef __cplusplus
 }

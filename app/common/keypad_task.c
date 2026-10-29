@@ -2,13 +2,14 @@
  * Includes   <System Includes> , "Project Includes"
  **********************************************************************************************************************/
 #include "keypad_task.h"
-#include "ui_flow_task.h"
-#include "ui_task.h"
+#include "system_control.h"
 
 static app_err_t system_keypad_port_write(void *p_context, uint8_t value);
 static app_err_t system_keypad_port_read(void *p_context, uint8_t *p_value);
+static void      timer_callback(void *param);
 #if USED_FREERTOS
 static void system_pcf8574_intr_callback(uint8_t pin_state, void *p_user_ctx);
+static void user_pcf8574_intr_callback(void);
 #endif
 pcf8574_instance_ctrl_t        pcf_ctrl;
 keypad_instance_ctrl_t         keypad_ctrl;
@@ -59,9 +60,62 @@ static const keypad_config_t keypad_cfg = {
     .idle_pattern     = KEYPAD_IDLE_PATTERN,
 };
 
+keypad_state_t keypad_state = {0};
+
+const esp_timer_create_args_t my_timer_args = {.callback = &timer_callback, .name = "Keypad timer"};
+esp_timer_handle_t            timer_handler;
 /***********************************************************************************************************************
  * Private functions
  **********************************************************************************************************************/
+
+/***********************************************************************************************************************
+ * SYSTEM_HOLD_MS after a press: the same keys still down make it a hold, otherwise it was a press.
+ **********************************************************************************************************************/
+static void timer_callback(void *param)
+{
+    keypad_state_t temp_keypad_state = {0};
+    app_err_t      ret               = keypad_scan(&keypad_ctrl, &temp_keypad_state);
+    if (APP_SUCCESS != ret)
+    {
+        ESP_LOGE(KEYPAD_TAG, "keypad_scan failed with application error: %d", ret);
+        return;
+    }
+    if ((keypad_state.state == BUTTON_HOLDING) && (temp_keypad_state.pressed_keys == 0U))
+    {
+        /* The release interrupt came while the hold was still being handled (BUTTON_PRESSED_HOLD) and was dropped:
+         * without this the keypad would wait in BUTTON_HOLDING forever. */
+        keypad_state.state = BUTTON_RELEASE;
+        return;
+    }
+    if (keypad_state.state != BUTTON_PRESSED)
+    {
+        return;
+    }
+    if (keypad_state.pressed_keys == temp_keypad_state.pressed_keys)
+    {
+        keypad_state.state = BUTTON_PRESSED_HOLD;
+    }
+    else
+    {
+        keypad_state.state = BUTTON_PRESSED_RELEASED;
+    }
+}
+
+/* A key went up: a press that did not reach the hold time is a press; a hold ends. */
+static void user_pcf8574_intr_callback(void)
+{
+    switch (keypad_state.state)
+    {
+        case BUTTON_PRESSED:
+            keypad_state.state = BUTTON_PRESSED_RELEASED;
+            break;
+        case BUTTON_HOLDING:
+            keypad_state.state = BUTTON_RELEASE;
+            break;
+        default:
+            break;
+    }
+}
 
 /***********************************************************************************************************************
  * Adapts the generic keypad port-write operation to the PCF8574 driver.
@@ -86,24 +140,83 @@ static app_err_t system_keypad_port_read(void *p_context, uint8_t *p_value)
 static void system_pcf8574_intr_callback(uint8_t pin_state, void *p_user_ctx)
 {
     (void)p_user_ctx;
+    user_pcf8574_intr_callback();
     /* Debug level: the pin state reveals which key, so a PIN, is being typed. */
-    ESP_LOGD(SYSTEM_TAG, "PCF8574 input state changed: 0x%02X", pin_state);
+    ESP_LOGD(KEYPAD_TAG, "PCF8574 input state changed: 0x%02X", pin_state);
 }
 #endif
 
+/***********************************************************************************************************************
+ * No key is being handled: scans, and on a key starts the hold timer. What the key means is decided when it is
+ * released (a press) or when the timer sees it still down (a hold).
+ **********************************************************************************************************************/
+static void pcf7584_keypad_released_action(void)
+{
+    memset(&keypad_state, 0, sizeof(keypad_state));
+    if (esp_timer_is_active(timer_handler) == true)
+    {
+        ESP_ERROR_CHECK(esp_timer_stop(timer_handler));
+    }
+
+    app_err_t ret = keypad_scan(&keypad_ctrl, &keypad_state);
+    if (APP_SUCCESS != ret)
+    {
+        keypad_state.state = BUTTON_RELEASE;
+        ESP_LOGE(KEYPAD_TAG, "keypad_scan failed with application error: %d", ret);
+        return;
+    }
+    if ((keypad_state.pressed_keys == 0x00) || keypad_state.ghost_detected)
+    {
+        if (keypad_state.ghost_detected)
+        {
+            ESP_LOGW(KEYPAD_TAG, "Keypad ghost detected, keys ignored");
+        }
+        keypad_state.state = BUTTON_RELEASE;
+        return;
+    }
+
+    /* PRESSED before the timer and the release interrupt can see the key: a quick release then still counts now,
+     * instead of only when the timer fires SYSTEM_HOLD_MS later. */
+    keypad_state.state = BUTTON_PRESSED;
+    ESP_ERROR_CHECK(esp_timer_start_periodic(timer_handler, (uint64_t)SYSTEM_HOLD_MS * 1000U));
+}
+
+static void pcf7584_keypad_pressed_released_action(void)
+{
+    /* Debug level: the key state is the PIN being typed. */
+    ESP_LOGD(KEYPAD_TAG, "Key pressed: 0x%04X", keypad_state.pressed_keys);
+    const char key = keypad_state_to_map_read(&keypad_state);
+    if ('\0' != key)
+    {
+        system_control_key(key, false);
+    }
+    keypad_state.state = BUTTON_RELEASE;
+}
+
+static void pcf7584_keypad_pressed_hold_action(void)
+{
+    ESP_LOGD(KEYPAD_TAG, "Key held: 0x%04X", keypad_state.pressed_keys);
+    const char key = keypad_state_to_map_read(&keypad_state);
+    if ('\0' != key)
+    {
+        system_control_key(key, true);
+    }
+    keypad_state.state = BUTTON_HOLDING; /* Until the release interrupt. */
+}
+
 void boot_pcf7584(void)
 {
-    ESP_LOGI(SYSTEM_TAG,
+    ESP_LOGI(KEYPAD_TAG,
              "Initializing PCF8574 (SDA: IO%d, SCL: IO%d, INT: IO%d, Addr: 0x%02X)...",
              PCF_SDA_PIN,
              PCF_SCL_PIN,
              PCF_INT_PIN,
              PCF_I2C_ADDR);
 
-    app_err_t ret = pcf8574_init(&pcf_ctrl, &pcf_cfg);
+    app_err_t ret = pcf8574_init(&pcf_ctrl, &pcf_cfg, false);
     if (ret != APP_SUCCESS)
     {
-        ESP_LOGE(SYSTEM_TAG, "pcf8574_init failed with application error: %d", ret);
+        ESP_LOGE(KEYPAD_TAG, "pcf8574_init failed with application error: %d", ret);
 #if USED_FREERTOS
         while (1)
         {
@@ -114,12 +227,12 @@ void boot_pcf7584(void)
 #endif
     }
 
-    ESP_LOGI(SYSTEM_TAG, "PCF8574 initialized successfully.");
+    ESP_LOGI(KEYPAD_TAG, "PCF8574 initialized successfully.");
 
     ret = keypad_init(&keypad_ctrl, &keypad_cfg);
     if (APP_SUCCESS != ret)
     {
-        ESP_LOGE(SYSTEM_TAG, "keypad_init failed with application error: %d", ret);
+        ESP_LOGE(KEYPAD_TAG, "keypad_init failed with application error: %d", ret);
         (void)pcf8574_deinit(&pcf_ctrl);
 #if USED_FREERTOS
         while (1)
@@ -131,47 +244,49 @@ void boot_pcf7584(void)
 #endif
     }
 
-    ESP_LOGI(SYSTEM_TAG, "Keypad initialized successfully.");
+    ESP_LOGI(KEYPAD_TAG, "Keypad initialized successfully.");
+
+#if USED_FREERTOS
+
+    ESP_ERROR_CHECK(esp_timer_create(&my_timer_args, &timer_handler));
+    ESP_LOGI(KEYPAD_TAG, "Timer initialized successfully ");
+
+#else
+    return;
+#endif
 }
 
 void keypad_task(void *pvParameter)
 {
 #if USED_FREERTOS
-    keypad_state_t keypad_state       = {0};
-    uint16_t       last_pressed_keys  = 0U;
-    bool           has_previous_state = false;
-
     while (1)
     {
-        app_err_t ret = keypad_scan(&keypad_ctrl, &keypad_state);
-        if (APP_SUCCESS == ret)
+        if (!system_control_keys_enabled())
         {
-            if ((!has_previous_state) || (last_pressed_keys != keypad_state.pressed_keys))
+            /* Lockout: drop whatever was half pressed, so it does not act when the lockout ends. */
+            if (esp_timer_is_active(timer_handler) == true)
             {
-                /* Debug level: the key state is the PIN being typed. */
-                ESP_LOGD(SYSTEM_TAG,
-                         "Keypad state: 0x%04X%s",
-                         keypad_state.pressed_keys,
-                         keypad_state.ghost_detected ? " (ghost detected)" : "");
-                if (keypad_state.ghost_detected)
-                {
-                    ESP_LOGW(SYSTEM_TAG, "Keypad ghost detected, keys ignored");
-                }
-                else
-                {
-                    /* LVGL first, so a digit that leaves Home is already typed when the flow opens Input. */
-                    ui_task_post_new_keys(keypad_state.pressed_keys, last_pressed_keys);
-                    ui_flow_post_keys(keypad_state.pressed_keys, last_pressed_keys);
-                }
-                last_pressed_keys  = keypad_state.pressed_keys;
-                has_previous_state = true;
+                ESP_ERROR_CHECK(esp_timer_stop(timer_handler));
             }
-        }
-        else
-        {
-            ESP_LOGE(SYSTEM_TAG, "keypad_scan failed with application error: %d", ret);
+            memset(&keypad_state, 0, sizeof(keypad_state));
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
         }
 
+        switch (keypad_state.state)
+        {
+            case BUTTON_RELEASE:
+                pcf7584_keypad_released_action();
+                break;
+            case BUTTON_PRESSED_RELEASED:
+                pcf7584_keypad_pressed_released_action();
+                break;
+            case BUTTON_PRESSED_HOLD:
+                pcf7584_keypad_pressed_hold_action();
+                break;
+            default: /* BUTTON_PRESSED, BUTTON_HOLDING: waiting for the timer or the release. */
+                break;
+        }
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 #else

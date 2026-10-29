@@ -2207,7 +2207,7 @@
                   {
                     "nid": 1030,
                     "strtype": "LABEL/Text",
-                    "strval": "Returns to home after 10s",
+                    "strval": "Returns to home after idle 10s",
                     "InheritedType": 10
                   },
                   {
@@ -10447,7 +10447,7 @@
     }
   ],
   "selected_theme": "Default",
-  "selected_screen": "GUID40490961-824819S9643508",
+  "selected_screen": "GUID71863855-601098S3260755",
   "info": {
     "name": "SmartLock_UI.spj",
     "depth": 2,
@@ -10478,7 +10478,7 @@
     "separate_screen_save": false,
     "hierarchy_state_save": false,
     "reverse_event_order": false,
-    "backup_cnt": 21,
+    "backup_cnt": 23,
     "autosave_cnt": 0,
     "group_color_cnt": 0,
     "imagebytearrayprefix": "",

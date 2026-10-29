@@ -1,14 +1,16 @@
- //Includes   <System Includes> , "Project Includes"
+// Includes   <System Includes> , "Project Includes"
 
 #include "keypad_task.h"
+#include "rfid_task.h"
 #include "network_task.h"
+#include "system_task.h"
 #include "ui_flow_task.h"
 #include "ui_task.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 
-
+#define SYSTEM_TAG "SYSTEM"
 /***********************************************************************************************************************
  * Initializes the main NVS partition used by the Wi-Fi driver and user data.
  *
@@ -52,10 +54,16 @@ void app_main(void)
         ESP_LOGE(SYSTEM_TAG, "Failed to create the network task");
     }
 #endif
+    boot_system_control();
+    /* Right away: it relocks the door and ends timeouts, whatever happens to the peripherals below. */
+    xTaskCreate(system_control_task, "system_control", 4096, NULL, 1, NULL);
 
-    /* Before the keypad, which halts here when the expander is missing, so the screen still comes up. */
+    /* Before the reader and the keypad, which wait here forever when their chip is missing, so the screen still comes
+     * up. The flow shows system_control, so after boot_system_control(). */
     boot_ui();
     boot_ui_flow();
+    boot_rfid(); /* Creates the I2C bus that boot_pcf7584() then joins. */
+    xTaskCreate(rfid_task, "rfid_task", 4096, NULL, 1, NULL);
     boot_pcf7584();
     xTaskCreate(keypad_task, "keypad", 4096, NULL, 1, NULL);
 
