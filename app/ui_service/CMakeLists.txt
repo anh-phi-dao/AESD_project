@@ -11,23 +11,23 @@ else()
 endif()
 
 set(srcs "ui_service.c")
-set(priv_include_dirs "")
+set(include_dirs ".")
 set(has_squareline 0)
 if(ui_export_srcs)
+    # Public: app/common/ui_flow_task.c sets the texts of the SquareLine objects (docs/ui_data.md).
     list(APPEND srcs ${ui_export_srcs})
-    list(APPEND priv_include_dirs "ui")
+    list(APPEND include_dirs "ui")
     set(has_squareline 1)
 else()
     list(APPEND srcs "ui_service_fallback.c")
 endif()
 
 idf_component_register(SRCS ${srcs}
-                       INCLUDE_DIRS "."
-                       PRIV_INCLUDE_DIRS ${priv_include_dirs}
+                       INCLUDE_DIRS ${include_dirs}
                        REQUIRES lvgl_port lvgl util
                        PRIV_REQUIRES log)
 
-target_compile_definitions(${COMPONENT_LIB} PRIVATE UI_SERVICE_HAS_SQUARELINE=${has_squareline})
+target_compile_definitions(${COMPONENT_LIB} PUBLIC UI_SERVICE_HAS_SQUARELINE=${has_squareline})
 
 # Generated code is overwritten on every export, so its warnings must not break the build.
 if(ui_export_srcs)

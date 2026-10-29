@@ -2,6 +2,7 @@
  * Includes   <System Includes> , "Project Includes"
  **********************************************************************************************************************/
 #include "keypad_task.h"
+#include "ui_flow_task.h"
 #include "ui_task.h"
 
 static app_err_t system_keypad_port_write(void *p_context, uint8_t value);
@@ -9,7 +10,6 @@ static app_err_t system_keypad_port_read(void *p_context, uint8_t *p_value);
 #if USED_FREERTOS
 static void system_pcf8574_intr_callback(uint8_t pin_state, void *p_user_ctx);
 #endif
-password_handle_t              pass_cfg;
 pcf8574_instance_ctrl_t        pcf_ctrl;
 keypad_instance_ctrl_t         keypad_ctrl;
 static const keypad_port_api_t s_keypad_port_api = {
@@ -80,35 +80,14 @@ static app_err_t system_keypad_port_read(void *p_context, uint8_t *p_value)
 }
 
 /***********************************************************************************************************************
- * TEMPORARY KEYPAD DEBUG: remove this helper when keypad input is connected to the application logic.
- **********************************************************************************************************************/
-static void system_log_keypad_debug(const keypad_state_t *const p_state)
-{
-    bool has_pressed_key = false;
-
-    for (uint8_t key_index = 0U; key_index < (KEYPAD_MAX_ROW_COUNT * KEYPAD_MAX_COLUMN_COUNT); key_index++)
-    {
-        if ((p_state->pressed_keys & (uint16_t)(1U << key_index)) != 0U)
-        {
-            ESP_LOGI(SYSTEM_TAG, "Keypad key: %c", s_keypad_keymap[key_index]);
-            has_pressed_key = true;
-        }
-    }
-
-    if (!has_pressed_key)
-    {
-        ESP_LOGI(SYSTEM_TAG, "Keypad key: released");
-    }
-}
-
-/***********************************************************************************************************************
  * Handles a PCF8574 interrupt in the device worker task context.
  **********************************************************************************************************************/
 #if USED_FREERTOS
 static void system_pcf8574_intr_callback(uint8_t pin_state, void *p_user_ctx)
 {
     (void)p_user_ctx;
-    ESP_LOGI(SYSTEM_TAG, "PCF8574 input state changed: 0x%02X", pin_state);
+    /* Debug level: the pin state reveals which key, so a PIN, is being typed. */
+    ESP_LOGD(SYSTEM_TAG, "PCF8574 input state changed: 0x%02X", pin_state);
 }
 #endif
 
@@ -153,23 +132,6 @@ void boot_pcf7584(void)
     }
 
     ESP_LOGI(SYSTEM_TAG, "Keypad initialized successfully.");
-
-#if USED_FREERTOS
-    ret = init_device_password(&pass_cfg, 7, "1234567");
-    if (APP_SUCCESS != ret)
-    {
-        ESP_LOGE(SYSTEM_TAG, "init_device_password failed with application error: %d", ret);
-        deinit_device_password(&pass_cfg);
-        while (1)
-        {
-            vTaskDelay(pdMS_TO_TICKS(2000));
-        }
-    }
-
-    ESP_LOGI(SYSTEM_TAG, "Password initialized successfully. %s", pass_cfg.password);
-#else
-    return;
-#endif
 }
 
 void keypad_task(void *pvParameter)
@@ -186,28 +148,23 @@ void keypad_task(void *pvParameter)
         {
             if ((!has_previous_state) || (last_pressed_keys != keypad_state.pressed_keys))
             {
-                ESP_LOGI(SYSTEM_TAG,
+                /* Debug level: the key state is the PIN being typed. */
+                ESP_LOGD(SYSTEM_TAG,
                          "Keypad state: 0x%04X%s",
                          keypad_state.pressed_keys,
                          keypad_state.ghost_detected ? " (ghost detected)" : "");
-                system_log_keypad_debug(&keypad_state);
-                if (!keypad_state.ghost_detected)
+                if (keypad_state.ghost_detected)
                 {
+                    ESP_LOGW(SYSTEM_TAG, "Keypad ghost detected, keys ignored");
+                }
+                else
+                {
+                    /* LVGL first, so a digit that leaves Home is already typed when the flow opens Input. */
                     ui_task_post_new_keys(keypad_state.pressed_keys, last_pressed_keys);
+                    ui_flow_post_keys(keypad_state.pressed_keys, last_pressed_keys);
                 }
                 last_pressed_keys  = keypad_state.pressed_keys;
                 has_previous_state = true;
-                switch (fill_password(&keypad_state, &pass_cfg))
-                {
-                    case AUTHEN_SUCCESS:
-                        ESP_LOGI(SYSTEM_TAG, "True input password %s", pass_cfg.input_password);
-                        break;
-                    case AUTHEN_FAILED:
-                        ESP_LOGI(SYSTEM_TAG, "False input password %s", pass_cfg.input_password);
-                        break;
-                    default:
-                        break;
-                }
             }
         }
         else

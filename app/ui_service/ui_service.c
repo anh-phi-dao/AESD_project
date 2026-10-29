@@ -159,7 +159,10 @@ app_err_t ui_service_show(ui_service_instance_ctrl_t *const p_ctrl, ui_service_s
         return ret;
     }
 
-    /* Digits typed on Home went to ui_InputField; the first one is what makes the caller show Input. */
+    /* Keys the caller is reacting to belong to the screen they were pressed on: a 0 leaving the admin menu must not
+     * reach the PIN field on Home. Digits typed on Home went to ui_InputField; the first one is what makes the caller
+     * show Input. */
+    lvgl_port_process_keys(p_ctrl->p_cfg->p_lvgl);
     const bool keep_input = (UI_SERVICE_SCREEN_INPUT == screen) && (lv_scr_act() == ui_Home);
 
     if (lv_scr_act() != *pp_screen)

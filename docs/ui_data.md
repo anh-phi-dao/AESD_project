@@ -70,3 +70,30 @@ Cập nhật từ task khác phải giữ `ui_service_lock` / `ui_service_unlock
 | Nhấn `0` ở `ADMIN MENU` | `Home` | |
 
 Mọi lần chuyển màn hình do firmware làm, bằng `ui_service_show()`. Không còn màn hình nào SquareLine tự chuyển.
+
+## 3. Firmware chạy luồng này: `app/common/ui_flow_task.c`
+
+Task `ui_flow` nhận phím từ `keypad_task` (nhấn / nhả, để đo thời gian giữ) và `on_submit` từ `ui_service`, rồi
+chuyển màn hình theo bảng trên. Thời gian, số lần thử, PIN và tài khoản admin mặc định nằm trong `ui_flow_task.h`.
+
+| Phím | Ở đâu | Tác dụng |
+|---|---|---|
+| Số | `Home` | Mở `Input` (`ENTER PIN`), giữ lại số vừa bấm |
+| `#` | `Input` / `AdminLogin` | Gửi (LVGL gọi `on_submit`) |
+| Giữ `*` 3 s | `Home` | `Voice` |
+| Giữ `#` 3 s | `Home` | Popup `No new messages` |
+| Giữ `0` 3 s | `Home` | `AdminLogin` |
+| Giữ `*` 3 s | `Input`, `AdminLogin` | Về `Home` |
+| Giữ `*` 3 s | Bước admin (`Input`, `Status` quét) | Về menu của mục đó |
+| `#` / giữ `*` 3 s | `Voice` | Dừng / hủy ghi |
+| `1` `2` `3` / `0` | `ADMIN MENU` | Mục PIN / vân tay / thẻ, hoặc thoát admin |
+| `1` / `2` / `0` | Menu PIN / vân tay / thẻ | Thêm / xóa / quay lại |
+
+Thời gian chờ: `Input` 10 s, `AdminLogin` 20 s, admin 30 s không bấm phím thì về `Home`. Sai PIN 5 lần, hoặc sai đăng
+nhập admin 3 lần, thì khóa 60 s. PIN đúng/sai được ghi vào `event_log` (web thấy được). Khi bị khóa thì ghi thêm cảnh
+báo `pin_bruteforce`.
+
+**Chưa có phần cứng nên tạm thời:** `UNLOCKED` chỉ đổi chữ trong 5 s, chưa đóng mở solenoid. Ghi âm mới chỉ chạy
+thanh tiến độ, chưa ghi tiếng. Thêm vân tay / thẻ sẽ hết giờ sau 15 s và báo `Reader not connected yet`. PIN thêm từ
+menu admin chỉ nằm trong RAM, khởi động lại là mất. Các chỗ cần nối phần cứng có đánh dấu `TODO(...)` trong code.
+

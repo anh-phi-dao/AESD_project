@@ -2,7 +2,9 @@
 
 #include "keypad_task.h"
 #include "network_task.h"
+#include "ui_flow_task.h"
 #include "ui_task.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 
@@ -53,6 +55,13 @@ void app_main(void)
 
     /* Before the keypad, which halts here when the expander is missing, so the screen still comes up. */
     boot_ui();
+    boot_ui_flow();
     boot_pcf7584();
     xTaskCreate(keypad_task, "keypad", 4096, NULL, 1, NULL);
+
+    /* No PSRAM: Wi-Fi, TLS, LVGL and every task stack share internal RAM. A TLS handshake needs about 40 KB more. */
+    ESP_LOGI(SYSTEM_TAG,
+             "Free internal RAM after boot: %u bytes (largest block %u)",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 }
