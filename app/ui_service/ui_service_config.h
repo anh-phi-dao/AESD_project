@@ -24,4 +24,9 @@
 /* A screen change only waits for the LVGL task to finish its current frame. */
 #define UI_SERVICE_SCREEN_LOCK_TIMEOUT_MS 200U
 
+/* Popup background per level (0xRRGGBB). The error color matches the Popup panel drawn in SquareLine. */
+#define UI_SERVICE_POPUP_COLOR_INFO       0x1C2630U
+#define UI_SERVICE_POPUP_COLOR_SUCCESS    0x27AE60U
+#define UI_SERVICE_POPUP_COLOR_ERROR      0xC0392BU
+
 #endif /* UI_SERVICE_CONFIG_H_ */

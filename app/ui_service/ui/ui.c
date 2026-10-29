@@ -59,13 +59,12 @@ void ui_init(void)
                                                true, LV_FONT_DEFAULT);
     lv_disp_set_theme(dispp, theme);
     ui_Home_screen_init();
-    ui_Pin_screen_init();
-    ui_Granted_screen_init();
-    ui_Denied_screen_init();
+    ui_Input_screen_init();
     ui_Voice_screen_init();
-    ui_VoiceDone_screen_init();
-    ui_Alert_screen_init();
-    ui_LockDoor_screen_init();
+    ui_AdminLogin_screen_init();
+    ui_Menu_screen_init();
+    ui_Status_screen_init();
+    ui_Overlay_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);
     lv_disp_load_scr(ui_Home);
 }
@@ -73,11 +72,10 @@ void ui_init(void)
 void ui_destroy(void)
 {
     ui_Home_screen_destroy();
-    ui_Pin_screen_destroy();
-    ui_Granted_screen_destroy();
-    ui_Denied_screen_destroy();
+    ui_Input_screen_destroy();
     ui_Voice_screen_destroy();
-    ui_VoiceDone_screen_destroy();
-    ui_Alert_screen_destroy();
-    ui_LockDoor_screen_destroy();
+    ui_AdminLogin_screen_destroy();
+    ui_Menu_screen_destroy();
+    ui_Status_screen_destroy();
+    ui_Overlay_screen_destroy();
 }

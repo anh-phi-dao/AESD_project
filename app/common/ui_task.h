@@ -33,4 +33,10 @@ void boot_ui(void);
  **********************************************************************************************************************/
 void ui_task_post_new_keys(uint16_t pressed_keys, uint16_t previous_keys);
 
+/***********************************************************************************************************************
+ * The UI for other tasks: pass it to ui_service_show(), ui_service_popup(), ui_service_set_submit_cb() and the rest.
+ * NULL before boot_ui() succeeded or when the UI is disabled, so callers keep working without a screen.
+ **********************************************************************************************************************/
+struct st_ui_service_instance_ctrl *ui_task_get_ui(void);
+
 #endif
