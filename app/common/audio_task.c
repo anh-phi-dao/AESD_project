@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stdint.h>
 
+#define DEBUG_AUDIO_TASK 0
 #define RECORD_SECONDS_N 3U
 #define RECORD_SAMPLES   (MIC_SAMPLE_RATE * RECORD_SECONDS_N)
 #define CHUNK_SAMPLES    256U
@@ -16,29 +17,39 @@ void boot_audio()
 
 static void play_beep(void)
 {
+#if DEBUG_AUDIO_TASK
     ESP_LOGI(AUDIO_TASK_TAG, ">> Beep...");
+#endif
     ESP_ERROR_CHECK(ns4168_speaker_start_playback());
 
     int16_t beep[CHUNK_SAMPLES * 2U];
-    for (size_t i = 0; i < CHUNK_SAMPLES; i++)
+    for (size_t pos = 0; pos < RECORD_SAMPLES; pos += CHUNK_SAMPLES)
     {
-        float   t         = (float)i / MIC_SAMPLE_RATE;
-        float   f         = 1500.0f; // 1 kHz beep
-        float   a         = 0.5f;    // amplitude
-        float   s         = a * sinf(2.0f * M_PI * f * t);
-        int16_t sample    = (int16_t)(s * INT16_MAX);
-        beep[2U * i]      = sample;
-        beep[2U * i + 1U] = sample;
-    }
+        for (size_t i = 0; i < CHUNK_SAMPLES; i++)
+        {
+            float   t         = (float)i / MIC_SAMPLE_RATE;
+            float   f         = 2500.0f; // 2.5 kHz beep
+            float   a         = 0.5f;    // amplitude
+            float   s         = a * sinf(2.0f * M_PI * f * t);
+            int16_t sample    = (int16_t)(s * INT16_MAX);
+            beep[2U * i]      = sample;
+            beep[2U * i + 1U] = sample;
+        }
 
-    size_t written = 0;
-    if (ESP_OK != ns4168_speaker_write(beep, sizeof(beep), &written, 200))
-    {
-        ESP_LOGE(AUDIO_TASK_TAG, "speaker write failed");
+        size_t written = 0;
+        if (audio_get_state(&audio_management_object) >= AUDIO_PLAYING)
+        {
+            if (ESP_OK != ns4168_speaker_write(beep, sizeof(beep), &written, 200))
+            {
+                ESP_LOGE(AUDIO_TASK_TAG, "speaker write failed");
+            }
+        }
     }
 
     ESP_ERROR_CHECK(ns4168_speaker_stop_playback());
+#if DEBUG_AUDIO_TASK
     ESP_LOGI(AUDIO_TASK_TAG, "Beep done");
+#endif
 }
 
 void audio_task()
@@ -48,16 +59,24 @@ void audio_task()
         switch (audio_get_state(&audio_management_object))
         {
             case AUDIO_UNSED:
+#if DEBUG_AUDIO_TASK
                 ESP_LOGI(AUDIO_TASK_TAG, "AUDIO_UNSED");
+#endif
                 break;
             case AUDIO_RECORDING:
+#if DEBUG_AUDIO_TASK
                 ESP_LOGI(AUDIO_TASK_TAG, "AUDIO_RECORDING");
+#endif
                 break;
             case AUDIO_PLAYING:
+#if DEBUG_AUDIO_TASK
                 ESP_LOGI(AUDIO_TASK_TAG, "AUDIO_PLAYING");
+#endif
                 break;
             case AUDIO_PLAYING_BEEP:
+#if DEBUG_AUDIO_TASK
                 ESP_LOGI(AUDIO_TASK_TAG, "AUDIO_PLAYING_BEEP");
+#endif
                 play_beep();
                 break;
             default:
