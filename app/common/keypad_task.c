@@ -251,6 +251,21 @@ static void pcf7584_keypad_pressed_hold_action(void)
                 ESP_LOGI(KEYPAD_TAG, "Usermode is not allowed to add UID");
             }
             break;
+        case DELETE_UID:
+            ESP_LOGI(KEYPAD_TAG, "Keypad delete UID");
+            if (device_mode.mode_id == ADMIN_MODE)
+            {
+                if (get_device_admin_mode_state(&device_mode) == ADMIN_LOGGED_IN)
+                {
+                    device_mode.mode_update_state(&device_mode, ADMIN_DELETE_UID, false);
+                }
+            }
+            else
+            {
+                ESP_LOGI(KEYPAD_TAG, "Usermode is not allowed to delete UID");
+            }
+            break;
+
         case ENTER_PASSWORD:
             ESP_LOGI(KEYPAD_TAG, "Keypad input before password : %s", device_mode.mode_password_ptr->input_password);
             if (get_device_admin_mode_state(&device_mode) == ADMIN_CHANGE_PASSWORD)

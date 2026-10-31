@@ -196,6 +196,7 @@ static void uid_action_when_uid_read(void)
             if (add_uid_to_list(&uids_head, uid, uid_length) != NULL)
             {
                 ESP_LOGI(RFID_TAG, "UID added successfully");
+                device_mode.mode_update_state(&device_mode, ADMIN_LOGGED_IN, false);
             }
             else
             {
