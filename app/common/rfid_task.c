@@ -105,6 +105,7 @@ void rfid_task(void *pvParameter)
             ESP_LOGI(TAG, "UID Length: %d bytes", read_uid_length);
             ESP_LOGI(TAG, "UID Value:");
             ESP_LOG_BUFFER_HEX_LEVEL(TAG, read_uid, read_uid_length, ESP_LOG_INFO);
+            system_control_card(read_uid, read_uid_length); /* Unlock, unknown card, or add it in the admin menu. */
 
             err = pn532_in_list_passive_target(&pn532_io);
             if (err != ESP_OK)
@@ -160,125 +161,5 @@ void rfid_task(void *pvParameter)
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
         vTaskDelay(pdMS_TO_TICKS(10));
-    }
-}
-
-static void uid_action_when_uid_read(void)
-{
-    uint8_t current_mode_state = 0U;
-
-    if (xSemaphoreTake(device_mode.mode_mutex, portMAX_DELAY) != pdTRUE)
-    {
-        ESP_LOGI(RFID_TAG, "Error system mutex");
-        return;
-    }
-    current_mode_state = device_mode.mode_state;
-    xSemaphoreGive(device_mode.mode_mutex);
-
-    switch (current_mode_state)
-    {
-        case USER_ENTERING_PASSWORD:
-            ESP_LOGI(RFID_TAG, "Checking UID while user is entering password");
-            if (validate_uid(uid, uid_length, &uids_head) == 1)
-            {
-                ESP_LOGI(RFID_TAG, "UID is valid, opening lock");
-                device_mode.mode_update_state(&device_mode, USER_OPEN_LOCK, true);
-            }
-            else
-            {
-                ESP_LOGI(RFID_TAG, "UID is invalid");
-                device_mode.mode_update_state(&device_mode, USER_WRONG_PASSWORD, true);
-            }
-            break;
-        case ADMIN_ADD_UID:
-            /*Tạm thời chưa có UID cho ADMIN, có sẽ thêm sau*/
-            ESP_LOGI(RFID_TAG, "Adding UID mode");
-            if (add_uid_to_list(&uids_head, uid, uid_length) != NULL)
-            {
-                ESP_LOGI(RFID_TAG, "UID added successfully");
-            }
-            else
-            {
-                ESP_LOGI(RFID_TAG, "Failed to add UID");
-            }
-            break;
-        default:
-            break;
-    }
-}
-
-static void uid_action_when_no_uid_read(void)
-{
-    uint8_t current_mode_state = 0U;
-
-    if (xSemaphoreTake(device_mode.mode_mutex, portMAX_DELAY) != pdTRUE)
-    {
-        ESP_LOGI(RFID_TAG, "Error system mutex");
-        return;
-    }
-    current_mode_state = device_mode.mode_state;
-    xSemaphoreGive(device_mode.mode_mutex);
-
-    switch (current_mode_state)
-    {
-        case ADMIN_ADD_UID:
-            ESP_LOGI(RFID_TAG, "Adding UID mode");
-            break;
-        case ADMIN_DELETE_UID:
-            ESP_LOGI(RFID_TAG, "Deleting UID mode");
-            remove_uid_from_list(&uids_head, uid, uid_length);
-            device_mode.mode_update_state(&device_mode, ADMIN_LOGGED_IN, false);
-            break;
-        default:
-            break;
-    }
-}
-
-void uid_task(void *pvParameter)
-{
-    if (uid_mutex == NULL)
-    {
-        ESP_LOGE(TAG, "UID mutex is not initialized");
-        return;
-    }
-
-    while (1)
-    {
-        if (xSemaphoreTake(uid_mutex, pdMS_TO_TICKS(1000)) != pdTRUE)
-        {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
-        }
-
-        uint8_t current_uid[sizeof(uid)];
-        uint8_t current_uid_length = uid_length;
-        memcpy(current_uid, uid, sizeof(current_uid));
-
-        struct list_head     *pos;
-        uid_memory_storage_t *entry;
-
-        ESP_LOGI(RFID_TAG, "Current UID list:");
-        list_for_each(pos, &uids_head)
-        {
-            entry = list_entry(pos, uid_memory_storage_t, list);
-            ESP_LOGI(RFID_TAG, "UID: ");
-            ESP_LOG_BUFFER_HEX_LEVEL(RFID_TAG, entry->uid, entry->uid_length, ESP_LOG_INFO);
-        }
-
-        xSemaphoreGive(uid_mutex);
-
-        if (current_uid_length > 0)
-        {
-            ESP_LOGI(RFID_TAG, "Current UID: ");
-            ESP_LOG_BUFFER_HEX_LEVEL(RFID_TAG, current_uid, current_uid_length, ESP_LOG_INFO);
-            uid_action_when_uid_read();
-        }
-        else
-        {
-            ESP_LOGI(RFID_TAG, "No UID read yet.");
-            uid_action_when_no_uid_read();
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

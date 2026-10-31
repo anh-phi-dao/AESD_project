@@ -34,6 +34,7 @@ static char                            s_hostname[NETWORK_HOSTNAME_SIZE];
 /* Event log (interim store until storage_manager logs to the SD card) and its MQTT bridge. */
 static event_log_instance_ctrl_t      s_event_log_ctrl = {0};
 static remote_service_instance_ctrl_t s_remote_ctrl    = {0};
+static bool                           s_event_log_ready = false;
 static const remote_service_config_t  s_remote_cfg     = {
          .p_log  = &s_event_log_ctrl,
          .p_mqtt = &s_mqtt_ctrl,
@@ -78,6 +79,7 @@ void boot_event_log(void)
         ESP_LOGE(NETWORK_TAG, "event_log_init failed with application error: %d", ret);
         return;
     }
+    s_event_log_ready = true;
 
 #if CONFIG_DOOR_SIM_ENABLE
     ret = door_sim_init(&s_door_sim_ctrl, &s_door_sim_cfg);
@@ -150,4 +152,14 @@ void network_task(void *pvParameter)
         ESP_LOGE(NETWORK_TAG, "mqtt_conn_init failed with application error: %d", ret);
     }
     vTaskDelete(NULL);
+}
+
+event_log_instance_ctrl_t *network_task_get_event_log(void)
+{
+    return s_event_log_ready ? &s_event_log_ctrl : NULL;
+}
+
+bool network_task_is_wifi_connected(void)
+{
+    return network_manager_is_connected(&s_net_ctrl);
 }

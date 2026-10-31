@@ -363,14 +363,8 @@ char keypad_state_to_map_read(const keypad_state_t *const p_state)
     {
         if ((p_state->pressed_keys & (uint16_t)(1U << key_index)) != 0U)
         {
-            if (p_state->state == BUTTON_PRESSED_RELEASED)
-            {
-                return s_keypad_keymap[key_index];
-            }
-            else if (p_state->state == BUTTON_PRESSED_HOLD)
-            {
-                return s_hold_keypad_keymap[key_index];
-            }
+            /* Pressed or held, the key is the same; what a hold means is up to the application. */
+            return s_keypad_keymap[key_index];
         }
     }
     return '\0';

@@ -10,13 +10,11 @@
 #include "pn532.h"
 #include "pn532_driver.h"
 #include "pn532_driver_i2c.h"
-#include "uid.h"
-#include "system_export.h"
+#include "system_control.h"
 
 #define RFID_TAG "RFID"
 
 void boot_rfid(void);
 void rfid_task(void *pvParameter);
-void uid_task(void *pvParameter);
 
 #endif

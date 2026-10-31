@@ -13,20 +13,7 @@ lv_obj_t * ui_VoiceFill = NULL;
 lv_obj_t * ui_VoiceTime = NULL;
 lv_obj_t * ui_VoiceHint = NULL;
 lv_obj_t * ui_VoiceHintText = NULL;
-lv_obj_t * ui_VoiceWifi = NULL;
-lv_obj_t * ui_VoiceWifiOff = NULL;
-lv_obj_t * ui_VoiceBattery = NULL;
-lv_obj_t * ui_VoiceBatteryPct = NULL;
 // event funtions
-void ui_event_Voice(lv_event_t * e)
-{
-    lv_event_code_t event_code = lv_event_get_code(e);
-
-    if(event_code == LV_EVENT_SCREEN_LOADED) {
-        RecordProgress_Animation(ui_VoiceFill, 1000);
-        _ui_screen_change(&ui_VoiceDone, LV_SCR_LOAD_ANIM_FADE_ON, 300, 16000, &ui_VoiceDone_screen_init);
-    }
-}
 
 // build funtions
 
@@ -41,7 +28,7 @@ void ui_Voice_screen_init(void)
     lv_obj_set_width(ui_VoiceIcon, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_VoiceIcon, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_VoiceIcon, 0);
-    lv_obj_set_y(ui_VoiceIcon, -78);
+    lv_obj_set_y(ui_VoiceIcon, -66);
     lv_obj_set_align(ui_VoiceIcon, LV_ALIGN_CENTER);
     lv_label_set_text(ui_VoiceIcon, "");
     lv_obj_set_style_text_color(ui_VoiceIcon, lv_color_hex(0x2DB6A3), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -52,7 +39,7 @@ void ui_Voice_screen_init(void)
     lv_obj_set_width(ui_VoiceTitle, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_VoiceTitle, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_VoiceTitle, 0);
-    lv_obj_set_y(ui_VoiceTitle, -38);
+    lv_obj_set_y(ui_VoiceTitle, -34);
     lv_obj_set_align(ui_VoiceTitle, LV_ALIGN_CENTER);
     lv_label_set_text(ui_VoiceTitle, "RECORDING");
     lv_obj_set_style_text_color(ui_VoiceTitle, lv_color_hex(0xC0392B), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -115,48 +102,6 @@ void ui_Voice_screen_init(void)
     lv_obj_set_style_text_opa(ui_VoiceHintText, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_VoiceHintText, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_VoiceWifi = lv_label_create(ui_Voice);
-    lv_obj_set_width(ui_VoiceWifi, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_VoiceWifi, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_VoiceWifi, 215);
-    lv_obj_set_y(ui_VoiceWifi, 4);
-    lv_label_set_text(ui_VoiceWifi, "");
-    lv_obj_set_style_text_color(ui_VoiceWifi, lv_color_hex(0x8A96A0), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_VoiceWifi, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_VoiceWifi, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    ui_VoiceWifiOff = lv_label_create(ui_Voice);
-    lv_obj_set_width(ui_VoiceWifiOff, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_VoiceWifiOff, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_VoiceWifiOff, 201);
-    lv_obj_set_y(ui_VoiceWifiOff, 3);
-    lv_label_set_text(ui_VoiceWifiOff, "");
-    lv_obj_set_style_text_color(ui_VoiceWifiOff, lv_color_hex(0xE74C3C), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_VoiceWifiOff, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_VoiceWifiOff, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    ui_VoiceBattery = lv_label_create(ui_Voice);
-    lv_obj_set_width(ui_VoiceBattery, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_VoiceBattery, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_VoiceBattery, 285);
-    lv_obj_set_y(ui_VoiceBattery, 5);
-    lv_label_set_text(ui_VoiceBattery, "");
-    lv_obj_set_style_text_color(ui_VoiceBattery, lv_color_hex(0xE8ECEF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_VoiceBattery, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_VoiceBattery, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    ui_VoiceBatteryPct = lv_label_create(ui_Voice);
-    lv_obj_set_width(ui_VoiceBatteryPct, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_VoiceBatteryPct, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_VoiceBatteryPct, 247);
-    lv_obj_set_y(ui_VoiceBatteryPct, 4);
-    lv_label_set_text(ui_VoiceBatteryPct, "100%");
-    lv_obj_set_style_text_color(ui_VoiceBatteryPct, lv_color_hex(0xE8ECEF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_VoiceBatteryPct, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_VoiceBatteryPct, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    lv_obj_add_event_cb(ui_Voice, ui_event_Voice, LV_EVENT_ALL, NULL);
-
 }
 
 void ui_Voice_screen_destroy(void)
@@ -172,9 +117,5 @@ void ui_Voice_screen_destroy(void)
     ui_VoiceTime = NULL;
     ui_VoiceHint = NULL;
     ui_VoiceHintText = NULL;
-    ui_VoiceWifi = NULL;
-    ui_VoiceWifiOff = NULL;
-    ui_VoiceBattery = NULL;
-    ui_VoiceBatteryPct = NULL;
 
 }

@@ -1,6 +1,8 @@
 #ifndef NETWORK_TASK_H
 #define NETWORK_TASK_H
 
+#include <stdbool.h>
+#include "event_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -24,5 +26,15 @@ void boot_event_log(void);
  * is started, because both drivers reconnect on their own from then on. Requires an initialized NVS.
  **********************************************************************************************************************/
 void network_task(void *pvParameter);
+
+/***********************************************************************************************************************
+ * The event log for local lock logic to record access attempts and alerts. NULL when boot_event_log() failed.
+ **********************************************************************************************************************/
+event_log_instance_ctrl_t *network_task_get_event_log(void);
+
+/***********************************************************************************************************************
+ * True while Wi-Fi has an IP address. False before network_task started it or without device credentials.
+ **********************************************************************************************************************/
+bool network_task_is_wifi_connected(void);
 
 #endif

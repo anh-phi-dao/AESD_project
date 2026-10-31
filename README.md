@@ -22,7 +22,7 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 | Telegram bot | Chưa làm |
 | Lưu log ra vào lên thẻ SD | Chưa làm |
 | Tin nhắn thoại trên firmware (INMP441, loa) | Chưa làm; web đã sẵn sàng |
-| Màn hình TFT ILI9341 + LVGL (`device/ili9341_tft_display`, `middleware/lvgl_port`, `app/ui_service`) | Đã có giao diện SquareLine (người dùng + admin), keypad gõ được vào màn hình. Chưa nối với lock_service ([docs/tft_ui.md](docs/tft_ui.md)) |
+| Màn hình TFT ILI9341 + LVGL (`device/ili9341_tft_display`, `middleware/lvgl_port`, `app/ui_service`) | Đã có giao diện SquareLine (một project: 6 màn hình + popup, gồm cả admin). Phím chạy theo màn hình: `system_control` quyết định (PIN, thẻ, khóa tạm, admin, ghi âm), `ui_flow_task` chỉ hiển thị ([docs/ui_data.md](docs/ui_data.md)) |
 | Solenoid, NFC (PN532), audio | Chưa làm |
 
 ---
@@ -33,13 +33,13 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 AESD_project/
 ├── main/   Điểm vào: khởi tạo NVS, task mạng, màn hình, keypad (đang test)
 ├── app/
-│   ├── common/          Task chung: network_task, keypad_task, ui_task (nối màn hình với LVGL và keypad)
+│   ├── common/          Task chung: network_task, keypad_task, ui_task (khởi động màn hình), ui_flow_task (màn hình theo system_control), system_task, rfid_task
 │   ├── device_config/ NEW Đọc credential từ partition "devcfg"
 │   ├── network_manager/  NEW  WiFi STA, tự kết nối lại, SNTP, chờ "có IP + đúng giờ"
 │   ├── event_log/       NEW  Gán id, giữ sự kiện/cảnh báo gần nhất trong NVS, mã phiên gen
 │   ├── remote_service/  NEW  Một task publish event/alert/recent, trả lời history/req
 │   ├── door_sim/        NEW  Giả lập keypad/NFC/cảm biến cho board dev (nút BOOT, lệnh "sim")
-│   ├── ui_service/      NEW  Màn hình: nạp giao diện SquareLine trong ui/ (người dùng) và ui_admin/ (admin), nhận phím keypad
+│   ├── ui_service/      NEW  Màn hình: nạp giao diện SquareLine trong ui/, chuyển màn hình, popup, nhận phím keypad
 │   ├── lock_service/ ...     (chưa có code)
 ├── device/                   Driver phần cứng (pcf8574, keypad, ili9341_tft_display, ...)
 ├── middleware/

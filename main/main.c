@@ -4,12 +4,15 @@
 #include "rfid_task.h"
 #include "network_task.h"
 #include "system_task.h"
+#include "ui_flow_task.h"
 #include "ui_task.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "audio_task.h"
+#include "fingerprint_task.h"
 
 #define SYSTEM_TAG "SYSTEM"
-
 /***********************************************************************************************************************
  * Initializes the main NVS partition used by the Wi-Fi driver and user data.
  *
@@ -54,13 +57,24 @@ void app_main(void)
     }
 #endif
     boot_system_control();
-    boot_rfid();
+    /* Right away: it relocks the door and ends timeouts, whatever happens to the peripherals below. */
+    xTaskCreatePinnedToCore(system_control_task, "system_control", 4096, NULL, 1, NULL, 1);
 
-    /* Before the keypad, which halts here when the expander is missing, so the screen still comes up. */
+    /* Before the reader and the keypad, which wait here forever when their chip is missing, so the screen still comes
+     * up. The flow shows system_control, so after boot_system_control(). */
     boot_ui();
+    boot_ui_flow();
+    boot_rfid(); /* Creates the I2C bus that boot_pcf7584() then joins. */
+    xTaskCreatePinnedToCore(rfid_task, "rfid_task", 4096, NULL, 1, NULL, 1);
+    boot_fingerprint(); /* Returns at once without a sensor. */
+    boot_audio();       /* Before the keypad, which sets the beep state from its first loop. */
+    xTaskCreatePinnedToCore(audio_task, "audio_task", 4096, NULL, 1, NULL, 0);
     boot_pcf7584();
-    xTaskCreate(keypad_task, "keypad", 4096, NULL, 1, NULL);
-    xTaskCreate(rfid_task, "rfid_task", 4096, NULL, 1, NULL);
-    xTaskCreate(uid_task, "uid_task", 4096, NULL, 1, NULL);
-    xTaskCreate(system_control_task, "system_control", 4096, NULL, 1, NULL);
+    xTaskCreatePinnedToCore(keypad_task, "keypad", 4096, NULL, 1, NULL, 1);
+
+    /* No PSRAM: Wi-Fi, TLS, LVGL and every task stack share internal RAM. A TLS handshake needs about 40 KB more. */
+    ESP_LOGI(SYSTEM_TAG,
+             "Free internal RAM after boot: %u bytes (largest block %u)",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 }

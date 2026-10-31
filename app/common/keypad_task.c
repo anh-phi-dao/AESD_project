@@ -2,8 +2,7 @@
  * Includes   <System Includes> , "Project Includes"
  **********************************************************************************************************************/
 #include "keypad_task.h"
-#include "system_export.h"
-#include "ui_task.h"
+#include "system_control.h"
 
 static app_err_t system_keypad_port_write(void *p_context, uint8_t value);
 static app_err_t system_keypad_port_read(void *p_context, uint8_t *p_value);
@@ -61,17 +60,17 @@ static const keypad_config_t keypad_cfg = {
     .idle_pattern     = KEYPAD_IDLE_PATTERN,
 };
 
-keypad_state_t keypad_state       = {0};
-uint16_t       last_pressed_keys  = 0U;
-bool           has_previous_state = false;
+keypad_state_t keypad_state = {0};
 
-uint8_t                       timer_callback_excecute;
 const esp_timer_create_args_t my_timer_args = {.callback = &timer_callback, .name = "Keypad timer"};
 esp_timer_handle_t            timer_handler;
 /***********************************************************************************************************************
  * Private functions
  **********************************************************************************************************************/
 
+/***********************************************************************************************************************
+ * SYSTEM_HOLD_MS after a press: the same keys still down make it a hold, otherwise it was a press.
+ **********************************************************************************************************************/
 static void timer_callback(void *param)
 {
     keypad_state_t temp_keypad_state = {0};
@@ -79,6 +78,13 @@ static void timer_callback(void *param)
     if (APP_SUCCESS != ret)
     {
         ESP_LOGE(KEYPAD_TAG, "keypad_scan failed with application error: %d", ret);
+        return;
+    }
+    if ((keypad_state.state == BUTTON_HOLDING) && (temp_keypad_state.pressed_keys == 0U))
+    {
+        /* The release interrupt came while the hold was still being handled (BUTTON_PRESSED_HOLD) and was dropped:
+         * without this the keypad would wait in BUTTON_HOLDING forever. */
+        keypad_state.state = BUTTON_RELEASE;
         return;
     }
     if (keypad_state.state != BUTTON_PRESSED)
@@ -95,6 +101,7 @@ static void timer_callback(void *param)
     }
 }
 
+/* A key went up: a press that did not reach the hold time is a press; a hold ends. */
 static void user_pcf8574_intr_callback(void)
 {
     switch (keypad_state.state)
@@ -127,30 +134,6 @@ static app_err_t system_keypad_port_read(void *p_context, uint8_t *p_value)
 }
 
 /***********************************************************************************************************************
- * TEMPORARY KEYPAD DEBUG: remove this helper when keypad input is connected to the application logic.
- **********************************************************************************************************************/
-static void system_log_keypad_debug(const keypad_state_t *const p_state)
-{
-    bool has_pressed_key = false;
-
-    for (uint8_t key_index = 0U; key_index < (KEYPAD_MAX_ROW_COUNT * KEYPAD_MAX_COLUMN_COUNT); key_index++)
-    {
-        if ((p_state->pressed_keys & (uint16_t)(1U << key_index)) != 0U)
-        {
-            if (p_state->state == BUTTON_PRESSED_RELEASED)
-            {
-                ESP_LOGI(KEYPAD_TAG, "Keypad key: %c", s_keypad_keymap[key_index]);
-            }
-            else if (p_state->state == BUTTON_PRESSED_HOLD)
-            {
-                ESP_LOGI(KEYPAD_TAG, "Keypad key: %c", s_hold_keypad_keymap[key_index]);
-            }
-            has_pressed_key = true;
-        }
-    }
-}
-
-/***********************************************************************************************************************
  * Handles a PCF8574 interrupt in the device worker task context.
  **********************************************************************************************************************/
 #if USED_FREERTOS
@@ -158,182 +141,67 @@ static void system_pcf8574_intr_callback(uint8_t pin_state, void *p_user_ctx)
 {
     (void)p_user_ctx;
     user_pcf8574_intr_callback();
-    ESP_LOGI(KEYPAD_TAG, "PCF8574 input state changed: 0x%02X", pin_state);
+    /* Debug level: the pin state reveals which key, so a PIN, is being typed. */
+    ESP_LOGD(KEYPAD_TAG, "PCF8574 input state changed: 0x%02X", pin_state);
 }
 #endif
 
+/***********************************************************************************************************************
+ * No key is being handled: scans, and on a key starts the hold timer. What the key means is decided when it is
+ * released (a press) or when the timer sees it still down (a hold).
+ **********************************************************************************************************************/
 static void pcf7584_keypad_released_action(void)
 {
-    uint8_t current_mode_state       = get_device_mode_common_state(&device_mode);
-    uint8_t current_admin_mode_state = get_device_admin_mode_state(&device_mode);
     memset(&keypad_state, 0, sizeof(keypad_state));
     if (esp_timer_is_active(timer_handler) == true)
     {
         ESP_ERROR_CHECK(esp_timer_stop(timer_handler));
     }
-    app_err_t ret = keypad_scan(&keypad_ctrl, &keypad_state);
 
+    app_err_t ret = keypad_scan(&keypad_ctrl, &keypad_state);
     if (APP_SUCCESS != ret)
     {
         keypad_state.state = BUTTON_RELEASE;
         ESP_LOGE(KEYPAD_TAG, "keypad_scan failed with application error: %d", ret);
         return;
     }
-    if (keypad_state.pressed_keys == 0x00)
+    if ((keypad_state.pressed_keys == 0x00) || keypad_state.ghost_detected)
     {
+        if (keypad_state.ghost_detected)
+        {
+            ESP_LOGW(KEYPAD_TAG, "Keypad ghost detected, keys ignored");
+        }
         keypad_state.state = BUTTON_RELEASE;
         return;
     }
 
-    if ((current_mode_state == LOGGING_IN) || (current_mode_state == LOGGED_IN))
-    {
-        ESP_ERROR_CHECK(esp_timer_start_periodic(timer_handler, 3000000));
-        keypad_state.state = BUTTON_PRESSED;
-        return;
-    }
-    else if ((current_admin_mode_state == ADMIN_CHANGE_PASSWORD))
-    {
-        ESP_ERROR_CHECK(esp_timer_start_periodic(timer_handler, 3000000));
-        keypad_state.state = BUTTON_PRESSED;
-        return;
-    }
-
-    keypad_state.state = BUTTON_RELEASE;
+    /* PRESSED before the timer and the release interrupt can see the key: a quick release then still counts now,
+     * instead of only when the timer fires SYSTEM_HOLD_MS later. */
+    keypad_state.state = BUTTON_PRESSED;
+    ESP_ERROR_CHECK(esp_timer_start_periodic(timer_handler, (uint64_t)SYSTEM_HOLD_MS * 1000U));
 }
 
 static void pcf7584_keypad_pressed_released_action(void)
 {
-    ESP_LOGI(KEYPAD_TAG,
-             "PRESSED_RELEASE Keypad state: 0x%04X%s",
-             keypad_state.pressed_keys,
-             keypad_state.ghost_detected ? " (ghost detected)" : "");
-    system_log_keypad_debug(&keypad_state);
-    char key = keypad_state_to_map_read(&keypad_state);
-    /*Chỗ này phải update thêm*/
-    switch (fill_password(key, device_mode.mode_password_ptr))
+    /* Debug level: the key state is the PIN being typed. */
+    ESP_LOGD(KEYPAD_TAG, "Key pressed: 0x%04X", keypad_state.pressed_keys);
+    const char key = keypad_state_to_map_read(&keypad_state);
+    if ('\0' != key)
     {
-        case ERROR_FILLING_PASSWORD:
-            ESP_LOGI(KEYPAD_TAG, "Filling password error");
-            break;
-        case NO_MORE_SPACE:
-            ESP_LOGI(KEYPAD_TAG,
-                     "No more space to contain more password character %s",
-                     device_mode.mode_password_ptr->input_password);
-            break;
-        default:
-            break;
+        system_control_key(key, false);
     }
     keypad_state.state = BUTTON_RELEASE;
-    ESP_LOGI(KEYPAD_TAG, "Keypad key: released");
 }
 
 static void pcf7584_keypad_pressed_hold_action(void)
 {
-    ESP_LOGI(KEYPAD_TAG,
-             "PRESSED_HOLD Keypad state: 0x%04X%s",
-             keypad_state.pressed_keys,
-             keypad_state.ghost_detected ? " (ghost detected)" : "");
-    system_log_keypad_debug(&keypad_state);
-    char hold_key = keypad_state_to_map_read(&keypad_state);
-    switch (hold_key)
+    ESP_LOGD(KEYPAD_TAG, "Key held: 0x%04X", keypad_state.pressed_keys);
+    const char key = keypad_state_to_map_read(&keypad_state);
+    if ('\0' != key)
     {
-        case ADD_UID:
-            ESP_LOGI(KEYPAD_TAG, "Keypad add UID");
-            if (device_mode.mode_id == ADMIN_MODE)
-            {
-                if (get_device_admin_mode_state(&device_mode) == ADMIN_LOGGED_IN)
-                {
-                    device_mode.mode_update_state(&device_mode, ADMIN_ADD_UID, false);
-                }
-            }
-            else
-            {
-                ESP_LOGI(KEYPAD_TAG, "Usermode is not allowed to add UID");
-            }
-            break;
-        case ENTER_PASSWORD:
-            ESP_LOGI(KEYPAD_TAG, "Keypad input before password : %s", device_mode.mode_password_ptr->input_password);
-            if (get_device_admin_mode_state(&device_mode) == ADMIN_CHANGE_PASSWORD)
-            {
-                ESP_LOGI(KEYPAD_TAG, "Keypad changing password");
-                change_password(device_mode.mode_password_ptr);
-            }
-            else if (get_device_mode_common_state(&device_mode) == LOGGING_IN)
-            {
-                ESP_LOGI(KEYPAD_TAG, "Keypad begin validate password");
-                if (validate_password(device_mode.mode_password_ptr) == AUTHEN_SUCCESS)
-                {
-                    device_mode.mode_update_state(&device_mode, LOGGED_IN, true);
-                    ESP_LOGI(KEYPAD_TAG, "Keypad validate password success");
-                }
-                else
-                {
-                    device_mode.mode_update_state(&device_mode, WRONG_PASSWORD, true);
-                    ESP_LOGI(KEYPAD_TAG, "Keypad validate password failed");
-                }
-            }
-            ESP_LOGI(KEYPAD_TAG, "Keypad input after password : %s", device_mode.mode_password_ptr->input_password);
-            break;
-        case RECORD:
-            ESP_LOGI(KEYPAD_TAG, "Keypad recording");
-            break;
-        case PLAY:
-            ESP_LOGI(KEYPAD_TAG, "Keypad playing");
-            break;
-        case SET_USER_MODE:
-            if (get_device_admin_mode_state(&device_mode) == ADMIN_CHANGE_PASSWORD)
-            {
-                ESP_LOGI(KEYPAD_TAG, "Keypad change password for user mode");
-                device_mode.mode_password_ptr->interacted_password = &user_password;
-            }
-            else
-            {
-                ESP_LOGI(KEYPAD_TAG, "Keypad set up user mode");
-                change_device_mode(&device_mode, USER_MODE);
-                device_mode.mode_password_ptr->interacted_password = NULL;
-            }
-            break;
-        case SET_ADMINSTRATOR_MODE:
-            if (get_device_admin_mode_state(&device_mode) == ADMIN_CHANGE_PASSWORD)
-            {
-                ESP_LOGI(KEYPAD_TAG, "Keypad change password for admin mode");
-                device_mode.mode_password_ptr->interacted_password = &admin_password;
-            }
-            else
-            {
-                ESP_LOGI(KEYPAD_TAG, "Keypad set up administrator mode");
-                change_device_mode(&device_mode, ADMIN_MODE);
-                device_mode.mode_password_ptr->interacted_password = NULL;
-            }
-            break;
-        case CHANGE_PASSWORD:
-            if (device_mode.mode_id == ADMIN_MODE)
-            {
-                if (get_device_admin_mode_state(&device_mode) == ADMIN_LOGGED_IN)
-                {
-                    ESP_LOGI(KEYPAD_TAG, "Keypad begin to change password");
-                    device_mode.mode_update_state(&device_mode, ADMIN_CHANGE_PASSWORD, false);
-                    if (device_mode.mode_password_ptr->interacted_password == NULL)
-                    {
-                        device_mode.mode_password_ptr->interacted_password = &user_password;
-                    }
-                }
-                else if (get_device_admin_mode_state(&device_mode) == ADMIN_CHANGE_PASSWORD)
-                {
-                    ESP_LOGI(KEYPAD_TAG, "Return to admin logged in state");
-                    device_mode.mode_update_state(&device_mode, LOGGED_IN, true);
-                }
-            }
-            else
-            {
-                ESP_LOGI(KEYPAD_TAG, "Usermode is not allowed to change password");
-            }
-            break;
-        default:
-            break;
+        system_control_key(key, true);
     }
-    keypad_state.state = BUTTON_HOLDING;
-    ESP_LOGI(KEYPAD_TAG, "Keypad key: holding");
+    keypad_state.state = BUTTON_HOLDING; /* Until the release interrupt. */
 }
 
 void boot_pcf7584(void)
@@ -393,28 +261,27 @@ void keypad_task(void *pvParameter)
 #if USED_FREERTOS
     while (1)
     {
-        if (get_device_lock_state(&device_mode))
+        if (!system_control_keys_enabled())
         {
+            /* Lockout: drop whatever was half pressed, so it does not act when the lockout ends. */
+            if (esp_timer_is_active(timer_handler) == true)
+            {
+                ESP_ERROR_CHECK(esp_timer_stop(timer_handler));
+            }
+            memset(&keypad_state, 0, sizeof(keypad_state));
+            audio_set_state(&audio_management_object, AUDIO_UNSED); /* The key that locked may still be beeping. */
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
-        /*Add more state checks here with switch statement*/
 
-        switch (get_device_mode_common_state(&device_mode))
-        {
-            case WRONG_PASSWORD:
-            case LOCK_SYSTEM:
-                vTaskDelay(pdMS_TO_TICKS(50));
-                continue;
-            default:
-                break;
-        }
         switch (keypad_state.state)
         {
             case BUTTON_RELEASE:
+                audio_set_state(&audio_management_object, AUDIO_UNSED);
                 pcf7584_keypad_released_action();
                 break;
             case BUTTON_PRESSED:
+                audio_set_state(&audio_management_object, AUDIO_PLAYING_BEEP); /* Beeps while the key is down. */
                 break;
             case BUTTON_PRESSED_RELEASED:
                 pcf7584_keypad_pressed_released_action();
@@ -422,7 +289,7 @@ void keypad_task(void *pvParameter)
             case BUTTON_PRESSED_HOLD:
                 pcf7584_keypad_pressed_hold_action();
                 break;
-            default:
+            default: /* BUTTON_HOLDING: waiting for the release. */
                 break;
         }
         vTaskDelay(pdMS_TO_TICKS(50));
