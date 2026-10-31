@@ -12,6 +12,7 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "password.h"
+#include "audio_helper.h"
 #include "sdkconfig.h"
 
 /***********************************************************************************************************************

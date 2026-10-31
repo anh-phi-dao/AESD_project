@@ -427,9 +427,11 @@ void keypad_task(void *pvParameter)
         switch (keypad_state.state)
         {
             case BUTTON_RELEASE:
+                audio_set_state(&audio_management_object, AUDIO_UNSED);
                 pcf7584_keypad_released_action();
                 break;
             case BUTTON_PRESSED:
+                audio_set_state(&audio_management_object, AUDIO_PLAYING_BEEP);
                 break;
             case BUTTON_PRESSED_RELEASED:
                 pcf7584_keypad_pressed_released_action();

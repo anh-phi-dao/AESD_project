@@ -19,5 +19,6 @@ idf_component_register(SRCS "system_task.c"
                             "keypad_task.c"
                             "system_task.c"
                             "ui_task.c"
+                            "audio_task.c"
                        INCLUDE_DIRS "."
                        REQUIRES util driver ${DEVICE_REQUIRES} ${APP_REQUIRES})

@@ -7,6 +7,7 @@
 #include "ui_task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "audio_task.h"
 
 #define SYSTEM_TAG "SYSTEM"
 
@@ -59,8 +60,10 @@ void app_main(void)
     /* Before the keypad, which halts here when the expander is missing, so the screen still comes up. */
     boot_ui();
     boot_pcf7584();
-    xTaskCreate(keypad_task, "keypad", 4096, NULL, 1, NULL);
-    xTaskCreate(rfid_task, "rfid_task", 4096, NULL, 1, NULL);
-    xTaskCreate(uid_task, "uid_task", 4096, NULL, 1, NULL);
-    xTaskCreate(system_control_task, "system_control", 4096, NULL, 1, NULL);
+    boot_audio();
+    xTaskCreatePinnedToCore(keypad_task, "keypad", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(rfid_task, "rfid_task", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(uid_task, "uid_task", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(system_control_task, "system_control", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(audio_task, "audio_task", 4096, NULL, 1, NULL, 0);
 }
