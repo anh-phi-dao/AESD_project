@@ -158,7 +158,7 @@ void system_control_task(void *pvParameter)
             default:
                 break;
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 #else
 #endif
