@@ -4,6 +4,7 @@
  * Global Variables
  **********************************************************************************************************************/
 
+/* i2s_channel_write()/i2s_channel_read() take the timeout in milliseconds, not in FreeRTOS ticks. */
 static const char *TAG = "NS4168_SPEAKER";
 
 ns4168_speaker_context_t g_speaker_ctx = {
@@ -11,6 +12,63 @@ ns4168_speaker_context_t g_speaker_ctx = {
     .initialized = false,
     .playing     = false,
 };
+
+/***********************************************************************************************************************
+ * Private functions
+ **********************************************************************************************************************/
+
+/***********************************************************************************************************************
+ * Writes 16-bit PCM to the 32-bit I2S slots of the shared bus (sample << 16). With duplicate set, every input sample is
+ * sent to both the left and the right slot (mono input). bytes_written counts input bytes consumed.
+ **********************************************************************************************************************/
+static esp_err_t ns4168_speaker_write_pcm16(const int16_t *p_samples,
+                                            size_t         sample_count,
+                                            bool           duplicate,
+                                            size_t        *p_bytes_written,
+                                            uint32_t       timeout_ms)
+{
+    int32_t   chunk[SPK_WRITE_CHUNK_SAMPLES * 2U];
+    esp_err_t ret = ESP_OK;
+
+    *p_bytes_written = 0;
+    for (size_t done = 0; (done < sample_count) && (ESP_OK == ret);)
+    {
+        size_t count  = 0;
+        size_t slots  = 0;
+
+        if (duplicate)
+        {
+            count = ((sample_count - done) < SPK_WRITE_CHUNK_SAMPLES) ? (sample_count - done) : SPK_WRITE_CHUNK_SAMPLES;
+            for (size_t i = 0; i < count; i++)
+            {
+                chunk[2U * i]        = (int32_t)((uint32_t)(uint16_t)p_samples[done + i] << 16);
+                chunk[(2U * i) + 1U] = chunk[2U * i];
+            }
+            slots = count * 2U;
+        }
+        else
+        {
+            count = ((sample_count - done) < (SPK_WRITE_CHUNK_SAMPLES * 2U)) ? (sample_count - done)
+                                                                             : (SPK_WRITE_CHUNK_SAMPLES * 2U);
+            for (size_t i = 0; i < count; i++)
+            {
+                chunk[i] = (int32_t)((uint32_t)(uint16_t)p_samples[done + i] << 16);
+            }
+            slots = count;
+        }
+
+        size_t    written = 0;
+        ret               = i2s_channel_write(g_speaker_ctx.tx_handle, chunk, slots * sizeof(int32_t), &written, timeout_ms);
+        size_t samples_out = written / sizeof(int32_t);
+        done += duplicate ? (samples_out / 2U) : samples_out;
+        *p_bytes_written = done * sizeof(int16_t);
+        if ((ESP_OK == ret) && (0U == samples_out))
+        {
+            break;
+        }
+    }
+    return ret;
+}
 
 /***********************************************************************************************************************
  * Public APIs
@@ -34,39 +92,25 @@ ns4168_speaker_context_t g_speaker_ctx = {
  */
 esp_err_t ns4168_speaker_init(void)
 {
-    ESP_LOGI(TAG, "Initializing speaker I2S channel...");
-
-    // Channel configuration
-    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(AUDIO_SPK_PORT, I2S_ROLE_MASTER);
-    chan_cfg.dma_desc_num      = SPK_DMA_BUF_COUNT;
-    chan_cfg.dma_frame_num     = SPK_DMA_BUF_LEN;
-
-    // Create TX channel
-    ESP_RETURN_ON_ERROR(
-        i2s_new_channel(&chan_cfg, &g_speaker_ctx.tx_handle, NULL), TAG, "Failed to create I2S TX channel");
-
-    // Standard configuration for MAX98357A speaker
-    i2s_std_config_t std_cfg
-        = {.clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(SPK_SAMPLE_RATE),
-           .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(SPK_BITS_PER_SAMPLE, I2S_SLOT_MODE_STEREO),
-           .gpio_cfg = {.mclk         = I2S_GPIO_UNUSED,
-                        .bclk         = SPK_BCLK_PIN,
-                        .ws           = SPK_LRC_PIN,
-                        .dout         = SPK_DOUT_PIN,
-                        .din          = I2S_GPIO_UNUSED,
-                        .invert_flags = {.mclk_inv = false, .bclk_inv = false, .ws_inv = false}}};
-
-    esp_err_t ret = i2s_channel_init_std_mode(g_speaker_ctx.tx_handle, &std_cfg);
-    if (ret != ESP_OK)
+    if (g_speaker_ctx.initialized)
     {
-        ESP_LOGE(TAG, "Failed to init I2S standard mode: %s", esp_err_to_name(ret));
-        i2s_del_channel(g_speaker_ctx.tx_handle);
-        g_speaker_ctx.tx_handle = NULL;
-        return ret;
+        return ESP_OK;
     }
+
+    ESP_RETURN_ON_ERROR(audio_i2s_bus_init(&g_speaker_ctx.tx_handle, NULL), TAG, "Failed to create shared I2S bus");
+
+    const gpio_config_t ctrl_cfg = {
+        .pin_bit_mask = 1ULL << SPK_CTRL_PIN,
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&ctrl_cfg), TAG, "Failed to configure CTRL pin");
+    ESP_RETURN_ON_ERROR(gpio_set_level(SPK_CTRL_PIN, !SPK_CTRL_ACTIVE_LEVEL), TAG, "Failed to set CTRL pin");
+
     g_speaker_ctx.initialized = true;
-    ESP_LOGI(
-        TAG, "Speaker I2S channel initialized (BCLK=%d, LRC=%d, DOUT=%d)", SPK_BCLK_PIN, SPK_LRC_PIN, SPK_DOUT_PIN);
+    ESP_LOGI(TAG, "Speaker ready (CTRL=%d)", SPK_CTRL_PIN);
     return ESP_OK;
 }
 
@@ -96,7 +140,8 @@ esp_err_t ns4168_speaker_start_playback(void)
         return ESP_OK;
     }
 
-    ESP_RETURN_ON_ERROR(i2s_channel_enable(g_speaker_ctx.tx_handle), TAG, "Failed to enable TX channel");
+    ESP_RETURN_ON_ERROR(audio_i2s_bus_start(), TAG, "Failed to start the I2S clock");
+    ESP_RETURN_ON_ERROR(gpio_set_level(SPK_CTRL_PIN, SPK_CTRL_ACTIVE_LEVEL), TAG, "Failed to enable amplifier");
     g_speaker_ctx.playing = true;
 
     ESP_LOGI(TAG, "Playback started");
@@ -122,10 +167,8 @@ esp_err_t ns4168_speaker_stop_playback(void)
         return ESP_OK;
     }
 
-    if (g_speaker_ctx.tx_handle)
-    {
-        ESP_RETURN_ON_ERROR(i2s_channel_disable(g_speaker_ctx.tx_handle), TAG, "Failed to disable TX channel");
-    }
+    ESP_RETURN_ON_ERROR(gpio_set_level(SPK_CTRL_PIN, !SPK_CTRL_ACTIVE_LEVEL), TAG, "Failed to disable amplifier");
+    /* The TX channel keeps running as the shared clock source; with no data it outputs silence. */
 
     g_speaker_ctx.playing = false;
     ESP_LOGI(TAG, "Playback stopped");
@@ -174,41 +217,10 @@ esp_err_t ns4168_speaker_write_stereo(const void *buffer,
         return ESP_ERR_INVALID_STATE;
     }
 
-    *bytes_written = 0;
-    esp_err_t ret  = ESP_OK;
+    /* An even sample count is taken as interleaved stereo, an odd one as mono that is sent to both channels. */
+    const size_t samples = buffer_size / sizeof(int16_t);
 
-    // Giả định mỗi sample là 16-bit (2 bytes)
-    const int16_t *in_buf  = (const int16_t *)buffer;
-    size_t         samples = buffer_size / sizeof(int16_t);
-
-    // Nếu samples là chẵn → coi như stereo đã interleaved
-    if (samples % 2 == 0)
-    {
-        ret = i2s_channel_write(g_speaker_ctx.tx_handle, buffer, buffer_size, bytes_written, pdMS_TO_TICKS(timeout_ms));
-    }
-    else
-    {
-        // Mono: duplicate sang stereo
-        static int16_t stereo_buf[512]; // temp buffer, resize theo nhu cầu
-        size_t         stereo_samples = samples * 2;
-        if (stereo_samples > (sizeof(stereo_buf) / sizeof(int16_t)))
-        {
-            return ESP_ERR_NO_MEM; // buffer tạm không đủ
-        }
-        for (size_t i = 0; i < samples; i++)
-        {
-            stereo_buf[2 * i]     = in_buf[i]; // L
-            stereo_buf[2 * i + 1] = in_buf[i]; // R
-        }
-
-        ret = i2s_channel_write(g_speaker_ctx.tx_handle,
-                                stereo_buf,
-                                stereo_samples * sizeof(int16_t),
-                                bytes_written,
-                                pdMS_TO_TICKS(timeout_ms));
-    }
-
-    return ret;
+    return ns4168_speaker_write_pcm16((const int16_t *)buffer, samples, (samples % 2U) != 0U, bytes_written, timeout_ms);
 }
 
 /**
@@ -245,10 +257,8 @@ esp_err_t ns4168_speaker_write(const void *buffer, size_t buffer_size, size_t *b
         return ESP_ERR_INVALID_STATE;
     }
 
-    *bytes_written = 0;
-
-    esp_err_t ret
-        = i2s_channel_write(g_speaker_ctx.tx_handle, buffer, buffer_size, bytes_written, pdMS_TO_TICKS(timeout_ms));
+    esp_err_t ret = ns4168_speaker_write_pcm16(
+        (const int16_t *)buffer, buffer_size / sizeof(int16_t), false, bytes_written, timeout_ms);
 
     if (ret != ESP_OK)
     {

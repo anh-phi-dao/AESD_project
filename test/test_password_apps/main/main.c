@@ -2,8 +2,7 @@
  * Includes   <System Includes> , "Project Includes"
  **********************************************************************************************************************/
 
-#include "keypad.h"
-#include "pcf8574.h"
+#include "keypad_task.h"
 #if USED_FREERTOS
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -190,11 +189,11 @@ void app_main(void)
     uint16_t       last_pressed_keys  = 0U;
     bool           has_previous_state = false;
 
-    ret = init_device_password(&pass_cfg, 7, "1234567");
+    ret = init_password(&pass_cfg, 7, "1234567");
     if (APP_SUCCESS != ret)
     {
-        ESP_LOGE(SYSTEM_TAG, "init_device_password failed with application error: %d", ret);
-        deinit_device_password(&pass_cfg);
+        ESP_LOGE(SYSTEM_TAG, "init_password failed with application error: %d", ret);
+        deinit_password(&pass_cfg);
 #if USED_FREERTOS
         while (1)
         {

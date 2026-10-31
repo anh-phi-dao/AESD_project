@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "driver/i2s_std.h"
+#include "audio_i2s_bus.h"
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -19,29 +20,33 @@
  * Macro definitions
  ******************************************************************************************************************/
 
-#define INM441_I2S_NUM I2S_NUM_AUTO
+/* Pins, port and sample rate come from the shared I2S bus (see audio_i2s_bus.h). */
+#define MIC_WS_PIN     AUDIO_I2S_WS_PIN
+#define MIC_SD_PIN     AUDIO_I2S_DIN_PIN
+#define MIC_SCK_PIN    AUDIO_I2S_BCLK_PIN
+#define AUDIO_MIC_PORT AUDIO_I2S_PORT
 
-/* ---------------- Pin definitions ---------------- */
-/* INMP441 microphone (I2S RX) */
-#define MIC_WS_PIN  4 /* LRCLK / WS */
-#define MIC_SD_PIN  6 /* DATA       */
-#define MIC_SCK_PIN 5 /* BCLK       */
+/* The INMP441 L/R pin is tied to 3V3 on the board, so its data is in the RIGHT slot (index 1). Use 0 if L/R is
+ * changed to GND. */
+#define MIC_SLOT_INDEX 1
 
-#define AUDIO_MIC_PORT I2S_NUM_0
+/* The INMP441 sends 24-bit samples left-justified in a 32-bit word; raw >> MIC_GAIN_SHIFT gives the 16-bit sample
+ * (16 = plain top 16 bits, each step below that doubles the digital gain). */
+#define MIC_GAIN_SHIFT 14
 
-/* ---------------- Audio formats ------------------- */
-/* Microphone side */
-#define MIC_SAMPLE_RATE     16000
-#define MIC_BITS_PER_SAMPLE I2S_DATA_BIT_WIDTH_16BIT // Updated to new macro
+/* The INMP441 needs a moment after the clock starts before its output settles (DC / filter start-up). These first
+ * milliseconds are dropped by inm441_i2s_mic_read(). */
+#define MIC_SETTLE_MS 300
+
+/* Audio formats */
+#define MIC_SAMPLE_RATE     AUDIO_I2S_SAMPLE_RATE
+#define MIC_BITS_PER_SAMPLE I2S_DATA_BIT_WIDTH_16BIT
 #define MIC_CHANNELS        1
-#define MIC_DMA_BUF_COUNT   16  /* 16 buffers * 480 bytes/buf * 2 B/sample = 15.36 KB total DMA */
-#define MIC_DMA_BUF_LEN     480 /* Aligned with read size (2 * 480 = 960) */
-#define MIC_READ_LEN        960 /* Reduced: 1024 samples = 64ms of audio (responsive streaming) */
+#define MIC_DMA_BUF_COUNT   AUDIO_I2S_DMA_DESC
+#define MIC_DMA_BUF_LEN     AUDIO_I2S_DMA_FRAMES
+#define MIC_READ_LEN        960 /* bytes of mono 16-bit samples per read (30 ms) */
 
-/* Continuous I2S configuration */
-#define MIC_TOTAL_DMA_SIZE  (MIC_DMA_BUF_COUNT * MIC_DMA_BUF_LEN * 2) /* Recalculated total DMA buffer */
-#define MIC_READ_TIMEOUT_MS 150                                       /* Configurable read timeout (was hardcoded) */
-#define MIC_MIN_DATA_READY  MIC_READ_LEN                              /* Minimum bytes needed before attempting read */
+#define MIC_READ_TIMEOUT_MS 150 /* default read timeout when the caller passes 0 */
 
 /* Recording size helper (bytes) */
 #define RECORD_SECONDS    5
@@ -126,17 +131,16 @@ esp_err_t inm441_i2s_mic_stop_recording(void);
 esp_err_t inm441_i2s_mic_read(void *buffer, size_t buffer_size, size_t *bytes_read, uint32_t timeout_ms);
 
 /**
- * @brief Get the number of bytes available from the microphone.
+ * @brief Read raw interleaved stereo frames (left, right) from the shared I2S bus.
  *
- * @param[in]  handle           I2S RX channel handle.
- * @param[out] bytes_available  Pointer to store the number of available bytes.
+ * Used to check which slot carries the INMP441 data. Each frame is two raw 32-bit words (24-bit data, left-justified).
  *
- * @retval ESP_OK                  The available data size was retrieved successfully.
- * @retval ESP_ERR_INVALID_ARG     The bytes_available pointer is NULL.
- * @retval ESP_ERR_INVALID_STATE   The microphone I2S channel is not initialized
- *                                 or recording is not active.
+ * @param[out] frames       Buffer for interleaved samples.
+ * @param[in]  frame_count  Number of stereo frames requested.
+ * @param[out] frames_read  Number of stereo frames actually read.
+ * @param[in]  timeout_ms   Read timeout in milliseconds, 0 uses the default.
  */
-esp_err_t inm441_i2s_mic_get_bytes_available(i2s_chan_handle_t handle, size_t *bytes_available);
+esp_err_t inm441_i2s_mic_read_stereo(int32_t *frames, size_t frame_count, size_t *frames_read, uint32_t timeout_ms);
 
 /**
  * @brief Read audio data using optimized timeout and buffer handling.

@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "driver/i2s_std.h"
+#include "audio_i2s_bus.h"
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -17,18 +18,24 @@
  * Macro definitions
  ******************************************************************************************************************/
 
-#define SPK_DOUT_PIN 7  /* DIN / DATA_OUT   */
-#define SPK_BCLK_PIN 15 /* CLK / BCLK       */
-#define SPK_LRC_PIN  16 /* LRC / LRCLK / WS */
+/* Pins, port and sample rate come from the shared I2S bus (see audio_i2s_bus.h). */
+#define SPK_DOUT_PIN   AUDIO_I2S_DOUT_PIN
+#define SPK_BCLK_PIN   AUDIO_I2S_BCLK_PIN
+#define SPK_LRC_PIN    AUDIO_I2S_WS_PIN
+#define AUDIO_SPK_PORT AUDIO_I2S_PORT
 
-#define AUDIO_SPK_PORT I2S_NUM_1
+/* NS4168 CTRL (I2S_CTRL) enables the amplifier. */
+#define SPK_CTRL_PIN          41
+#define SPK_CTRL_ACTIVE_LEVEL 1
 
 /* Speaker side */
-#define SPK_SAMPLE_RATE     16000                    // Support ws server audio data
-#define SPK_BITS_PER_SAMPLE I2S_DATA_BIT_WIDTH_16BIT // Updated to new macro
-#define SPK_CHANNELS        1
-#define SPK_DMA_BUF_COUNT   8
-#define SPK_DMA_BUF_LEN     256 // Optimized for ESP32-S3 with 8MB PSRAM and MAX98357A
+#define SPK_SAMPLE_RATE     AUDIO_I2S_SAMPLE_RATE
+#define SPK_BITS_PER_SAMPLE I2S_DATA_BIT_WIDTH_16BIT
+#define SPK_CHANNELS        2 /* the shared bus is stereo, write interleaved L/R samples */
+#define SPK_DMA_BUF_COUNT   AUDIO_I2S_DMA_DESC
+#define SPK_DMA_BUF_LEN     AUDIO_I2S_DMA_FRAMES
+
+#define SPK_WRITE_CHUNK_SAMPLES 128U /* stereo frames converted to the 32-bit bus format per I2S write */
 
 /*******************************************************************************************************************
  * Typedef definitions
