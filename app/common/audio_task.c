@@ -29,7 +29,7 @@ static void play_beep(void)
         {
             float   t         = (float)i / MIC_SAMPLE_RATE;
             float   f         = 2500.0f; // 2.5 kHz beep
-            float   a         = 0.5f;    // amplitude
+            float   a         = 0.2f;    // amplitude
             float   s         = a * sinf(2.0f * M_PI * f * t);
             int16_t sample    = (int16_t)(s * INT16_MAX);
             beep[2U * i]      = sample;
