@@ -1,60 +1,101 @@
+/***********************************************************************************************************************
+ * Includes   <System Includes> , "Project Includes"
+ **********************************************************************************************************************/
+
+#include <stdint.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/gpio.h"
-#include "driver/i2c_master.h"
+
 #include "esp_log.h"
 #include "inm441_mic.h"
 #include "ns4168_speaker.h"
-#include "audio_helper.h"
-#define AP_EN GPIO_NUM_17
 
-const char *TAG = "TEST_AUDIO";
-uint8_t     mic_buffer[AUDIO_BUFFER_SIZE];
-uint8_t     spk_buffer[AUDIO_BUFFER_SIZE * 2];
-size_t      bytes_read;
-void        app_main(void)
+/***********************************************************************************************************************
+ * Macro definitions
+ **********************************************************************************************************************/
+
+#define TAG              "TEST_AUDIO"
+#define RECORD_SECONDS_N 3U
+#define RECORD_SAMPLES   (MIC_SAMPLE_RATE * RECORD_SECONDS_N)
+#define CHUNK_SAMPLES    256U
+#define PLAYBACK_GAIN    4 /* the microphone is quiet, raise it for playback */
+
+/***********************************************************************************************************************
+ * Private variables
+ **********************************************************************************************************************/
+
+static int16_t s_record[RECORD_SAMPLES];
+
+/***********************************************************************************************************************
+ * Private functions
+ **********************************************************************************************************************/
+
+static void test_record(void)
 {
-    gpio_config_t io_conf = {.pin_bit_mask = (1ULL << AP_EN),
-                             .mode         = GPIO_MODE_OUTPUT,
-                             .pull_up_en   = GPIO_PULLUP_DISABLE,
-                             .pull_down_en = GPIO_PULLDOWN_DISABLE,
-                             .intr_type    = GPIO_INTR_DISABLE};
+    size_t total = 0;
 
-    gpio_config(&io_conf);
+    ESP_ERROR_CHECK(inm441_i2s_mic_start_recording());
+    ESP_LOGI(TAG, ">> SPEAK NOW for %u seconds...", (unsigned)RECORD_SECONDS_N);
 
-    if (inm441_i2s_mic_init() != ESP_OK)
+    while (total < RECORD_SAMPLES)
     {
-        ESP_LOGI(TAG, "Failed to initiatlize inm441 microphone");
-        return;
+        size_t want       = ((RECORD_SAMPLES - total) < CHUNK_SAMPLES) ? (RECORD_SAMPLES - total) : CHUNK_SAMPLES;
+        size_t bytes_read = 0;
+
+        if (ESP_OK != inm441_i2s_mic_read_smart(&s_record[total], want * sizeof(int16_t), &bytes_read, 200))
+        {
+            ESP_LOGE(TAG, "mic read failed");
+            break;
+        }
+        total += bytes_read / sizeof(int16_t);
     }
-    if (inm441_i2s_mic_start_recording() != ESP_OK)
+
+    ESP_ERROR_CHECK(inm441_i2s_mic_stop_recording());
+    ESP_LOGI(TAG, "Recorded %u samples", (unsigned)total);
+}
+
+static void test_playback(void)
+{
+    int16_t stereo[CHUNK_SAMPLES * 2U];
+
+    ESP_LOGI(TAG, ">> Playing back...");
+    ESP_ERROR_CHECK(ns4168_speaker_start_playback());
+
+    for (size_t pos = 0; pos < RECORD_SAMPLES; pos += CHUNK_SAMPLES)
     {
-        ESP_LOGI(TAG, "Failed to start recording in inm441 microphone");
-        return;
+        for (size_t i = 0; i < CHUNK_SAMPLES; i++)
+        {
+            int32_t v = (int32_t)s_record[pos + i] * PLAYBACK_GAIN;
+            v         = (v > INT16_MAX) ? INT16_MAX : ((v < INT16_MIN) ? INT16_MIN : v);
+            stereo[2U * i]      = (int16_t)v;
+            stereo[2U * i + 1U] = (int16_t)v;
+        }
+        size_t written = 0;
+        if (ESP_OK != ns4168_speaker_write(stereo, sizeof(stereo), &written, 200))
+        {
+            ESP_LOGE(TAG, "speaker write failed");
+            break;
+        }
     }
-    if (ns4168_speaker_init() != ESP_OK)
-    {
-        ESP_LOGI(TAG, "Failed to start recording in ns4168 speaker");
-        return;
-    }
-    if (ns4168_speaker_start_playback() != ESP_OK)
-    {
-        ESP_LOGI(TAG, "Failed to start playing in ns4168 speaker");
-        return;
-    }
+
+    ESP_ERROR_CHECK(ns4168_speaker_stop_playback());
+    ESP_LOGI(TAG, "Playback done");
+}
+
+/***********************************************************************************************************************
+ * Public APIs
+ **********************************************************************************************************************/
+
+void app_main(void)
+{
+    ESP_ERROR_CHECK(inm441_i2s_mic_init());
+    ESP_ERROR_CHECK(ns4168_speaker_init());
+
     while (1)
     {
-        bytes_read    = 0;
-        esp_err_t ret = inm441_i2s_mic_read(mic_buffer, AUDIO_BUFFER_SIZE, &bytes_read, 120);
-        if (ret == ESP_OK && bytes_read > 0)
-        {
-            // Convert mono to stereo
-            audio_mono_to_stereo((int16_t *)mic_buffer, (int16_t *)spk_buffer, bytes_read / 2);
-
-            size_t bytes_written = 0;
-            ns4168_speaker_write(spk_buffer, bytes_read * 2, &bytes_written, 100);
-        }
-        vTaskDelay(pdMS_TO_TICKS(30));
-        ESP_LOGI(TAG, "Audio loopback task stopped");
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        test_record();
+        test_playback();
     }
 }
