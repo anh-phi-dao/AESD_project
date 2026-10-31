@@ -161,7 +161,8 @@ typedef struct st_system_control_hooks
     void (*on_alert)(system_alert_t alert);
     void (*on_door)(bool unlocked); /* Drive the solenoid. */
     void (*on_voice)(system_voice_t action);
-    void (*on_play)(void); /* Play the newest message from the owner. */
+    void (*on_play)(void);                  /* Play the newest message from the owner. */
+    void (*on_finger_delete)(uint8_t user); /* Delete the template of this user in the sensor. */
 } system_control_hooks_t;
 
 /*******************************************************************************************************************
@@ -184,6 +185,9 @@ void system_control_finger(uint8_t user);
 /* ADMIN_SCAN for a fingerprint: the sensor took one image (good) or could not (false). The driver stores the template
  * under system_view_t.scan_user; the SYSTEM_SCAN_COUNT-th good image adds the finger. For the fingerprint driver. */
 void system_control_finger_scanned(bool good);
+
+/* ADMIN_SCAN for a fingerprint: the scans were not the same finger. Counting starts again at scan 1. */
+void system_control_finger_scan_restart(void);
 
 /* Timeouts and countdowns. Call every 100 ms or so. */
 void system_control_tick(void);

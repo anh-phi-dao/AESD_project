@@ -11,6 +11,7 @@
 #include "driver/i2c_master.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "audio_helper.h"
 #include "sdkconfig.h"
 
 /***********************************************************************************************************************

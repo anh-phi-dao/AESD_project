@@ -482,7 +482,15 @@ static void ui_flow_notice(const system_view_t *const p_view)
             ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Already added", detail);
             break;
         case SYSTEM_NOTICE_SCAN_MISMATCH:
-            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Cards do not match", "Counting again with this card");
+            /* A new card counts as its own first scan; a finger starts again from nothing. */
+            if (SYSTEM_CRED_FINGER == p_view->kind)
+            {
+                ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Fingers do not match", "Start again: scan 1 / 3");
+            }
+            else
+            {
+                ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Cards do not match", "Counting again with this card");
+            }
             break;
         case SYSTEM_NOTICE_SCAN_BAD:
             ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Finger not read", "Place it again");

@@ -108,6 +108,7 @@ Giữ một phím ở chỗ phím đó không có lệnh giữ (bảng dưới) 
 |---|---|
 | `app/common/keypad_task.c` | Quét keypad, phân biệt nhấn và giữ 3 s, gọi `system_control_key(key, hold)` |
 | `app/common/rfid_task.c` | Đọc thẻ PN532, gọi `system_control_card(uid, len)` |
+| `app/common/fingerprint_task.c` | Vân tay AS608 (UART1, TX IO9, RX IO8). Ở `Home` / `Input` / khóa: nhận dạng, gọi `system_control_finger(user)`. Ở `ADD FINGERPRINT`: quét 3 lần (lần 1 và 2 ghép thành mẫu lưu ở trang = user ID, lần 3 phải khớp mẫu đó), gọi `system_control_finger_scanned()` |
 | `app/system_controller/system_control.c` | Toàn bộ logic: màn hình đang ở đâu, phím làm gì, kiểm tra PIN / thẻ / admin, khóa, thời gian chờ |
 | `app/common/system_task.c` | Gọi `system_control_tick()` mỗi 100 ms; nối kết quả vào event log (web thấy được), cửa và âm thanh |
 | `app/common/ui_flow_task.c` | Chỉ hiển thị: đọc `system_control_get_view()` mỗi 100 ms rồi vẽ màn hình và popup |
@@ -119,7 +120,7 @@ là ID `1` / mật khẩu `1234`. PIN được kiểm tra ngay trên thiết b�
 - Solenoid: `system_on_door()` mới chỉ ghi log.
 - Ghi âm và phát: `system_on_voice()` và `system_on_play()` mới chỉ ghi log. Code âm thanh cần gọi
   `system_control_set_message_count()` để `Home` hiện số lời nhắn.
-- Vân tay: thêm vân tay sẽ hết giờ sau 15 s.
+- Vân tay: mẫu nằm trong flash của AS608, còn danh sách user có vân tay chỉ nằm trong RAM. Khởi động lại thì phải thêm lại, mẫu cũ bị ghi đè.
 - Lưu trữ: PIN và thẻ chỉ nằm trong RAM, khởi động lại là mất.
 
 Các chỗ này có đánh dấu `TODO(...)` trong code.

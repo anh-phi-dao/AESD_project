@@ -2,7 +2,7 @@ set(DEVICE_REQUIRES keypad
                     pcf8574 
                     audio_codec 
                     ili9341_tft_display 
-                    pn532 sd_card)
+                    pn532 sd_card as608)
 set(APP_REQUIRES auth_manager 
                  system_controller
                  device_config 
@@ -13,11 +13,13 @@ set(APP_REQUIRES auth_manager
                  remote_service
                  ui_service
                  door_sim)
-idf_component_register(SRCS "system_task.c" 
+idf_component_register(SRCS "fingerprint_task.c" "system_task.c" 
                             "rfid_task.c" 
                             "network_task.c" 
                             "keypad_task.c"
                             "ui_task.c"
                             "ui_flow_task.c"
+                            "audio_task.c"
+                            "fingerprint_task.c"
                        INCLUDE_DIRS "."
                        REQUIRES util driver ${DEVICE_REQUIRES} ${APP_REQUIRES})

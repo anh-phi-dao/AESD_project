@@ -269,6 +269,7 @@ void keypad_task(void *pvParameter)
                 ESP_ERROR_CHECK(esp_timer_stop(timer_handler));
             }
             memset(&keypad_state, 0, sizeof(keypad_state));
+            audio_set_state(&audio_management_object, AUDIO_UNSED); /* The key that locked may still be beeping. */
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
@@ -276,7 +277,11 @@ void keypad_task(void *pvParameter)
         switch (keypad_state.state)
         {
             case BUTTON_RELEASE:
+                audio_set_state(&audio_management_object, AUDIO_UNSED);
                 pcf7584_keypad_released_action();
+                break;
+            case BUTTON_PRESSED:
+                audio_set_state(&audio_management_object, AUDIO_PLAYING_BEEP); /* Beeps while the key is down. */
                 break;
             case BUTTON_PRESSED_RELEASED:
                 pcf7584_keypad_pressed_released_action();
@@ -284,7 +289,7 @@ void keypad_task(void *pvParameter)
             case BUTTON_PRESSED_HOLD:
                 pcf7584_keypad_pressed_hold_action();
                 break;
-            default: /* BUTTON_PRESSED, BUTTON_HOLDING: waiting for the timer or the release. */
+            default: /* BUTTON_HOLDING: waiting for the release. */
                 break;
         }
         vTaskDelay(pdMS_TO_TICKS(50));

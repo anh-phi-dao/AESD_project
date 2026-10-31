@@ -1,6 +1,7 @@
 #include "system_task.h"
 
 #include "event_log.h"
+#include "fingerprint_task.h"
 #include "network_task.h"
 
 static void system_on_access(system_method_t method, bool granted, uint8_t user);
@@ -10,11 +11,12 @@ static void system_on_voice(system_voice_t action);
 static void system_on_play(void);
 
 static const system_control_hooks_t s_hooks = {
-    .on_access = system_on_access,
-    .on_alert  = system_on_alert,
-    .on_door   = system_on_door,
-    .on_voice  = system_on_voice,
-    .on_play   = system_on_play,
+    .on_access        = system_on_access,
+    .on_alert         = system_on_alert,
+    .on_door          = system_on_door,
+    .on_voice         = system_on_voice,
+    .on_play          = system_on_play,
+    .on_finger_delete = fingerprint_task_request_delete,
 };
 
 void boot_system_control(void)

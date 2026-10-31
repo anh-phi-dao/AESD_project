@@ -34,6 +34,7 @@ typedef struct st_system_effects
     bool            voice;
     system_voice_t  voice_action;
     bool            play;
+    uint8_t         finger_delete; /* User whose sensor template goes, or 0. */
 } system_effects_t;
 
 typedef struct st_system_ctx
@@ -88,7 +89,7 @@ static void     system_admin_login_key(char key);
 static void     system_check_pin(system_effects_t *const p_fx);
 static void     system_deny(system_method_t method, system_effects_t *const p_fx);
 static void     system_check_admin(system_effects_t *const p_fx);
-static void     system_admin_submit(void);
+static void     system_admin_submit(system_effects_t *const p_fx);
 static void     system_go_cred_add(void);
 static bool     system_scan_good(void);
 static void     system_grant(system_method_t method, uint8_t user, system_effects_t *const p_fx);
@@ -279,7 +280,7 @@ void system_control_finger(uint8_t user)
             }
             break;
 
-        default: /* TODO(fingerprint driver): enrolling in ADMIN_SCAN marks s_fingers[] here. */
+        default: /* Enrolling goes through system_control_finger_scanned(). */
             break;
     }
     system_unlock_and_apply(&fx);
@@ -305,6 +306,24 @@ void system_control_finger_scanned(bool good)
             s_fingers[s_sys.scan_user - 1U] = true;
             ESP_LOGI(SYSTEM_TAG, "Fingerprint added for user %u", s_sys.scan_user);
         }
+    }
+    system_unlock_and_apply(&fx);
+}
+
+void system_control_finger_scan_restart(void)
+{
+    system_effects_t fx = {0};
+
+    if (!system_lock())
+    {
+        return;
+    }
+    if ((SYSTEM_STATE_ADMIN_SCAN == s_sys.state) && (SYSTEM_CRED_FINGER == s_sys.kind))
+    {
+        s_sys.activity_tick = xTaskGetTickCount();
+        s_sys.state_tick    = s_sys.activity_tick;
+        s_sys.scan_count    = 0U;
+        system_notify(SYSTEM_NOTICE_SCAN_MISMATCH, 0U);
     }
     system_unlock_and_apply(&fx);
 }
@@ -380,7 +399,6 @@ void system_control_tick(void)
         case SYSTEM_STATE_ADMIN_SCAN:
             if (state_ms >= SYSTEM_SCAN_TIMEOUT_MS)
             {
-                /* TODO(fingerprint driver): enroll in the sensor. Cards come through system_control_card(). */
                 system_enter(SYSTEM_STATE_CRED_MENU);
                 system_notify(SYSTEM_NOTICE_SCAN_TIMEOUT, 0U);
             }
@@ -592,7 +610,7 @@ static void system_handle_key(char key, bool hold, system_effects_t *const p_fx)
             {
                 if (0U != s_sys.entry_len)
                 {
-                    system_admin_submit();
+                    system_admin_submit(p_fx);
                 }
             }
             else if (!hold)
@@ -732,7 +750,7 @@ static void system_check_admin(system_effects_t *const p_fx)
 }
 
 /* # on an admin Input step: user ID to add or delete, new PIN, PIN again. */
-static void system_admin_submit(void)
+static void system_admin_submit(system_effects_t *const p_fx)
 {
     if ((SYSTEM_STEP_ADD_ID == s_sys.step) || (SYSTEM_STEP_DELETE_ID == s_sys.step))
     {
@@ -763,6 +781,10 @@ static void system_admin_submit(void)
             return;
         }
         system_user_delete(s_sys.kind, user);
+        if (SYSTEM_CRED_FINGER == s_sys.kind)
+        {
+            p_fx->finger_delete = user;
+        }
         ESP_LOGI(SYSTEM_TAG, "Credential %d of user %u deleted", (int)s_sys.kind, user);
         system_enter(SYSTEM_STATE_CRED_MENU);
         system_notify(SYSTEM_NOTICE_DELETED, user);
@@ -928,6 +950,10 @@ static void system_unlock_and_apply(const system_effects_t *const p_fx)
     {
         hooks.on_play();
     }
+    if ((0U != p_fx->finger_delete) && (NULL != hooks.on_finger_delete))
+    {
+        hooks.on_finger_delete(p_fx->finger_delete);
+    }
 }
 
 /* Every screen change starts with empty fields and a fresh idle timer. */
@@ -1085,7 +1111,7 @@ static void system_user_delete(system_cred_kind_t kind, uint8_t user)
             s_card_len[user - 1U] = 0U;
             break;
         default:
-            s_fingers[user - 1U] = false; /* TODO(fingerprint driver): also delete it in the sensor. */
+            s_fingers[user - 1U] = false; /* The sensor template goes through on_finger_delete. */
             break;
     }
 }

@@ -3,7 +3,7 @@
  **********************************************************************************************************************/
 
 #include <stdint.h>
-
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -14,6 +14,8 @@
 /***********************************************************************************************************************
  * Macro definitions
  **********************************************************************************************************************/
+#define TEST_RECORD_PLAYBACK 0
+#define TEST_BEEP            1
 
 #define TAG              "TEST_AUDIO"
 #define RECORD_SECONDS_N 3U
@@ -30,7 +32,6 @@ static int16_t s_record[RECORD_SAMPLES];
 /***********************************************************************************************************************
  * Private functions
  **********************************************************************************************************************/
-
 static void test_record(void)
 {
     size_t total = 0;
@@ -66,8 +67,8 @@ static void test_playback(void)
     {
         for (size_t i = 0; i < CHUNK_SAMPLES; i++)
         {
-            int32_t v = (int32_t)s_record[pos + i] * PLAYBACK_GAIN;
-            v         = (v > INT16_MAX) ? INT16_MAX : ((v < INT16_MIN) ? INT16_MIN : v);
+            int32_t v           = (int32_t)s_record[pos + i] * PLAYBACK_GAIN;
+            v                   = (v > INT16_MAX) ? INT16_MAX : ((v < INT16_MIN) ? INT16_MIN : v);
             stereo[2U * i]      = (int16_t)v;
             stereo[2U * i + 1U] = (int16_t)v;
         }
@@ -83,19 +84,53 @@ static void test_playback(void)
     ESP_LOGI(TAG, "Playback done");
 }
 
+static void test_beep(void)
+{
+    ESP_LOGI(TAG, ">> Beep...");
+    ESP_ERROR_CHECK(ns4168_speaker_start_playback());
+
+    int16_t beep[CHUNK_SAMPLES * 2U];
+    for (size_t i = 0; i < CHUNK_SAMPLES; i++)
+    {
+        float   t         = (float)i / MIC_SAMPLE_RATE;
+        float   f         = 1500.0f; // 1 kHz beep
+        float   a         = 0.5f;    // amplitude
+        float   s         = a * sinf(2.0f * M_PI * f * t);
+        int16_t sample    = (int16_t)(s * INT16_MAX);
+        beep[2U * i]      = sample;
+        beep[2U * i + 1U] = sample;
+    }
+
+    size_t written = 0;
+    if (ESP_OK != ns4168_speaker_write(beep, sizeof(beep), &written, 200))
+    {
+        ESP_LOGE(TAG, "speaker write failed");
+    }
+
+    ESP_ERROR_CHECK(ns4168_speaker_stop_playback());
+    ESP_LOGI(TAG, "Beep done");
+}
+
 /***********************************************************************************************************************
  * Public APIs
  **********************************************************************************************************************/
 
 void app_main(void)
 {
+#if TEST_RECORD_PLAYBACK
     ESP_ERROR_CHECK(inm441_i2s_mic_init());
+#endif
     ESP_ERROR_CHECK(ns4168_speaker_init());
 
     while (1)
     {
+#if TEST_RECORD_PLAYBACK
         vTaskDelay(pdMS_TO_TICKS(2000));
         test_record();
         test_playback();
+#endif
+#if TEST_BEEP
+        test_beep();
+#endif
     }
 }
