@@ -69,6 +69,7 @@ typedef struct st_system_ctx
     uint32_t               notice_seq;
     system_notice_t        notice;
     uint8_t                notice_value;
+    uint32_t               cred_seq; /* Bumped on every credential change, for storage. */
     bool                   init;
 } system_ctx_t;
 
@@ -96,6 +97,7 @@ static void     system_grant(system_method_t method, uint8_t user, system_effect
 static void     system_lockout(bool admin, system_effects_t *const p_fx);
 static uint32_t system_elapsed_ms(TickType_t since, TickType_t now);
 static bool     system_text_equal(const char *p_a, const char *p_b);
+static bool     system_pin_valid(const char *p_pin);
 static uint8_t  system_find_pin(const char *p_pin);
 static uint8_t  system_find_card(const uint8_t *p_uid, uint8_t uid_length);
 static uint8_t  system_parse_user(const char *p_text);
@@ -235,6 +237,7 @@ void system_control_card(const uint8_t *p_uid, uint8_t uid_length)
             {
                 memcpy(s_cards[s_sys.scan_user - 1U], p_uid, uid_length);
                 s_card_len[s_sys.scan_user - 1U] = uid_length;
+                s_sys.cred_seq++;
                 ESP_LOGI(SYSTEM_TAG, "Card added for user %u", s_sys.scan_user);
             }
             break;
@@ -304,6 +307,7 @@ void system_control_finger_scanned(bool good)
         else if (system_scan_good())
         {
             s_fingers[s_sys.scan_user - 1U] = true;
+            s_sys.cred_seq++;
             ESP_LOGI(SYSTEM_TAG, "Fingerprint added for user %u", s_sys.scan_user);
         }
     }
@@ -460,6 +464,78 @@ bool system_control_get_view(system_view_t *const p_view)
     p_view->scan_count    = s_sys.scan_count;
     xSemaphoreGive(s_sys.mutex);
     return true;
+}
+
+uint32_t system_control_credentials_seq(void)
+{
+    /* One word read: no lock needed for a hint. */
+    return s_sys.cred_seq;
+}
+
+bool system_control_get_credentials(system_credentials_t *const p_cred, uint32_t *const p_seq)
+{
+    if ((NULL == p_cred) || !s_sys.init || (pdTRUE != xSemaphoreTake(s_sys.mutex, pdMS_TO_TICKS(SYSTEM_LOCK_WAIT_MS))))
+    {
+        return false;
+    }
+
+    memcpy(p_cred->pins, s_pins, sizeof(p_cred->pins));
+    memcpy(p_cred->cards, s_cards, sizeof(p_cred->cards));
+    memcpy(p_cred->card_len, s_card_len, sizeof(p_cred->card_len));
+    memcpy(p_cred->fingers, s_fingers, sizeof(p_cred->fingers));
+    if (NULL != p_seq)
+    {
+        *p_seq = s_sys.cred_seq;
+    }
+    xSemaphoreGive(s_sys.mutex);
+    return true;
+}
+
+app_err_t system_control_set_credentials(const system_credentials_t *const p_cred)
+{
+    APP_ASSERT(NULL != p_cred);
+    if (!system_lock())
+    {
+        return APP_ERR_TIMEOUT;
+    }
+
+    memset(s_pins, 0, sizeof(s_pins));
+    memset(s_cards, 0, sizeof(s_cards));
+    memset(s_card_len, 0, sizeof(s_card_len));
+    for (uint8_t i = 0U; i < SYSTEM_USER_COUNT; i++)
+    {
+        const uint8_t user = (uint8_t)(i + 1U);
+
+        /* Taken one by one so system_find_pin / system_find_card see only what was already accepted. */
+        if ('\0' != p_cred->pins[i][0])
+        {
+            if (!system_pin_valid(p_cred->pins[i]) || (0U != system_find_pin(p_cred->pins[i])))
+            {
+                ESP_LOGW(SYSTEM_TAG, "Stored PIN of user %u dropped: invalid or used by another user", user);
+            }
+            else
+            {
+                memcpy(s_pins[i], p_cred->pins[i], sizeof(s_pins[0]));
+            }
+        }
+
+        const uint8_t len = p_cred->card_len[i];
+        if (0U != len)
+        {
+            if ((len > SYSTEM_UID_MAX) || (0U != system_find_card(p_cred->cards[i], len)))
+            {
+                ESP_LOGW(SYSTEM_TAG, "Stored card of user %u dropped: invalid or used by another user", user);
+            }
+            else
+            {
+                memcpy(s_cards[i], p_cred->cards[i], len);
+                s_card_len[i] = len;
+            }
+        }
+        s_fingers[i] = p_cred->fingers[i];
+    }
+    xSemaphoreGive(s_sys.mutex);
+    return APP_SUCCESS;
 }
 
 /***********************************************************************************************************************
@@ -817,6 +893,7 @@ static void system_admin_submit(system_effects_t *const p_fx)
     if (same)
     {
         memcpy(s_pins[s_sys.pending_user - 1U], s_sys.pending_pin, sizeof(s_pins[0]));
+        s_sys.cred_seq++;
     }
     memset(s_sys.pending_pin, 0, sizeof(s_sys.pending_pin));
     system_entry_clear();
@@ -1023,6 +1100,25 @@ static bool system_text_equal(const char *p_a, const char *p_b)
     return 0U == diff;
 }
 
+/* SYSTEM_PIN_MIN_LEN..SYSTEM_ENTRY_MAX digits, as the admin menu accepts. */
+static bool system_pin_valid(const char *p_pin)
+{
+    const size_t len = strnlen(p_pin, SYSTEM_ENTRY_MAX + 1U);
+
+    if ((len < SYSTEM_PIN_MIN_LEN) || (len > SYSTEM_ENTRY_MAX))
+    {
+        return false;
+    }
+    for (size_t i = 0U; i < len; i++)
+    {
+        if ((p_pin[i] < '0') || (p_pin[i] > '9'))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* User ID owning this PIN, or 0. */
 static uint8_t system_find_pin(const char *p_pin)
 {
@@ -1101,6 +1197,7 @@ static uint8_t system_user_count(system_cred_kind_t kind)
 
 static void system_user_delete(system_cred_kind_t kind, uint8_t user)
 {
+    s_sys.cred_seq++;
     switch (kind)
     {
         case SYSTEM_CRED_PIN:

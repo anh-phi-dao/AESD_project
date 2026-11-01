@@ -153,6 +153,15 @@ typedef enum e_system_voice
     SYSTEM_VOICE_CANCEL, /* Drop it. */
 } system_voice_t;
 
+/* Every stored credential, indexed by user ID - 1. For storage only: holds PINs in clear, so never log it. */
+typedef struct st_system_credentials
+{
+    char    pins[SYSTEM_USER_COUNT][SYSTEM_ENTRY_MAX + 1U]; /* "": no PIN. */
+    uint8_t cards[SYSTEM_USER_COUNT][SYSTEM_UID_MAX];
+    uint8_t card_len[SYSTEM_USER_COUNT]; /* 0: no card. */
+    bool    fingers[SYSTEM_USER_COUNT];  /* The template itself is in the sensor, at page = user ID. */
+} system_credentials_t;
+
 /* What the rest of the firmware does about a decision. Called from the task that caused it (keypad, rfid or
  * system_control_task), outside the system_control lock. Every member may be NULL. */
 typedef struct st_system_control_hooks
@@ -200,5 +209,16 @@ void system_control_set_message_count(uint8_t count);
 
 /* Copy of the state for the screen. False when the lock could not be taken in time. */
 bool system_control_get_view(system_view_t *const p_view);
+
+/* Changes with every PIN, card or finger added or deleted from the admin menu. One word read: cheap to poll. */
+uint32_t system_control_credentials_seq(void);
+
+/* Copy of every credential, and the credentials_seq it matches. False when the lock could not be taken in time. */
+bool system_control_get_credentials(system_credentials_t *const p_cred, uint32_t *const p_seq);
+
+/* Replaces every credential (the DEV DEFAULTS too), e.g. with what storage read at boot. Entries that break the rules
+ * of the admin menu (non-digit or short PIN, PIN or card of another user, card too long) are dropped and logged.
+ * Does not change credentials_seq: what was just loaded needs no saving. */
+app_err_t system_control_set_credentials(const system_credentials_t *const p_cred);
 
 #endif

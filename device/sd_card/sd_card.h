@@ -63,6 +63,16 @@ extern "C"
     /* Open and read a .txt file from the SD card, logging each line and optionally copying into out_buffer. */
     esp_err_t sd_card_read_txt_file(const char *filename, char *out_buffer, size_t buffer_size);
 
+    /* Read a whole file into out_buffer (NUL-terminated) without logging its content, for secrets. ESP_ERR_NOT_FOUND
+     * only when the file does not exist; ESP_ERR_INVALID_SIZE when it does not fit. */
+    esp_err_t sd_card_read_file(const char *filename, char *out_buffer, size_t buffer_size, size_t *p_length);
+
+    /* Rename a file; an existing file at new_name is replaced. ESP_ERR_NOT_FOUND when old_name does not exist. */
+    esp_err_t sd_card_rename_file(const char *old_name, const char *new_name);
+
+    /* Delete a file. ESP_ERR_NOT_FOUND when it does not exist. */
+    esp_err_t sd_card_remove_file(const char *filename);
+
     /* Recursively list all files and subdirectories starting from the given directory path. */
     void sd_card_list_files(const char *directory, int level);
 

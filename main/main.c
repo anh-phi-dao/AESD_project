@@ -11,6 +11,7 @@
 #include "nvs_flash.h"
 #include "audio_task.h"
 #include "fingerprint_task.h"
+#include "storage_task.h"
 
 #define SYSTEM_TAG "SYSTEM"
 /***********************************************************************************************************************
@@ -64,6 +65,10 @@ void app_main(void)
      * up. The flow shows system_control, so after boot_system_control(). */
     boot_ui();
     boot_ui_flow();
+    /* Loads the users before anything can read a PIN, a card or a finger, and before boot_fingerprint() clears the
+     * sensor templates nobody owns. */
+    boot_storage();
+    xTaskCreatePinnedToCore(storage_task, "storage", STORAGE_TASK_STACK, NULL, 1, NULL, 0);
     boot_rfid(); /* Creates the I2C bus that boot_pcf7584() then joins. */
     xTaskCreatePinnedToCore(rfid_task, "rfid_task", 4096, NULL, 1, NULL, 1);
     boot_fingerprint(); /* Returns at once without a sensor. */

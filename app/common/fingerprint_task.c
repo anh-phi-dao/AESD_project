@@ -1,6 +1,7 @@
 #include "fingerprint_task.h"
 
 #include <stdbool.h>
+#include <string.h>
 
 #include "esp_log.h"
 #include "fingerprint_sensor.h"
@@ -21,6 +22,7 @@ static void fingerprint_task(void *pvParameter);
 static void fingerprint_identify(void);
 static void fingerprint_enroll_step(const system_view_t *const p_view);
 static void fingerprint_do_deletes(void);
+static void fingerprint_drop_unknown(void);
 
 void boot_fingerprint(void)
 {
@@ -29,12 +31,7 @@ void boot_fingerprint(void)
         ESP_LOGW(FINGERPRINT_TASK_TAG, "No fingerprint sensor, fingerprints disabled");
         return;
     }
-    /* system_control keeps which users have a finger in RAM only: start the sensor empty too, or a finger enrolled
-     * before the restart would match and count as a wrong one. TODO(storage): drop this once both are kept in flash. */
-    if (ESP_OK != fingerprint_sensor_delete(1U, SYSTEM_USER_COUNT))
-    {
-        ESP_LOGW(FINGERPRINT_TASK_TAG, "Could not clear the user templates");
-    }
+    fingerprint_drop_unknown();
     if (pdPASS != xTaskCreatePinnedToCore(fingerprint_task, "fingerprint", FINGERPRINT_TASK_STACK, NULL, 1, &s_task, 1))
     {
         ESP_LOGE(FINGERPRINT_TASK_TAG, "Failed to create the fingerprint task");
@@ -188,6 +185,37 @@ static void fingerprint_enroll_step(const system_view_t *const p_view)
             }
             break;
         }
+    }
+}
+
+/***********************************************************************************************************************
+ * Deletes the templates of users who have no finger in system_control (what storage loaded, or nothing without an SD
+ * card), or a finger left from before would match and count as a wrong one. Runs of free pages go in one command.
+ **********************************************************************************************************************/
+static void fingerprint_drop_unknown(void)
+{
+    static system_credentials_t s_cred; /* Static: too big for the boot stack. Only fingers are used, PINs wiped. */
+    bool                        ok = system_control_get_credentials(&s_cred, NULL);
+
+    for (uint8_t first = 1U; ok && (first <= SYSTEM_USER_COUNT);)
+    {
+        if (s_cred.fingers[first - 1U])
+        {
+            first++;
+            continue;
+        }
+        uint8_t count = 1U;
+        while (((first + count) <= SYSTEM_USER_COUNT) && !s_cred.fingers[first + count - 1U])
+        {
+            count++;
+        }
+        ok    = (ESP_OK == fingerprint_sensor_delete(first, count));
+        first = (uint8_t)(first + count);
+    }
+    memset(&s_cred, 0, sizeof(s_cred));
+    if (!ok)
+    {
+        ESP_LOGW(FINGERPRINT_TASK_TAG, "Could not clear the unused templates");
     }
 }
 
