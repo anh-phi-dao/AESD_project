@@ -4,6 +4,7 @@
 #include "event_log.h"
 #include "fingerprint_task.h"
 #include "network_task.h"
+#include "solenoid_lock.h"
 #include "voice_task.h"
 
 static void system_on_access(system_method_t method, bool granted, uint8_t user);
@@ -130,7 +131,14 @@ static void system_on_alert(system_alert_t alert)
 
 static void system_on_door(bool unlocked)
 {
-    /* TODO(lock_service): drive the solenoid. */
+    if (!unlocked)
+    {
+        solenoid_lock_lock();
+    }
+    else if (APP_SUCCESS != solenoid_lock_unlock())
+    {
+        ESP_LOGE(SYSTEM_CONTROL_TAG, "Solenoid unlock failed, door stays locked");
+    }
     ESP_LOGI(SYSTEM_CONTROL_TAG, "Door %s", unlocked ? "unlocked" : "locked");
 }
 

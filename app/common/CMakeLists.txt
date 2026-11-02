@@ -2,7 +2,8 @@ set(DEVICE_REQUIRES keypad
                     pcf8574 
                     audio_codec 
                     ili9341_tft_display 
-                    pn532 sd_card as608)
+                    pn532 sd_card as608
+                    solenoid_lock)
 set(APP_REQUIRES auth_manager 
                  system_controller
                  device_config 

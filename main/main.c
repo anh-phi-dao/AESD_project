@@ -9,6 +9,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "solenoid_lock.h"
 #include "audio_task.h"
 #include "fingerprint_task.h"
 #include "storage_task.h"
@@ -49,6 +50,11 @@ static esp_err_t system_nvs_init(void)
  **********************************************************************************************************************/
 void app_main(void)
 {
+    /* Step 1, before NVS (an erase can take hundreds of ms): IO38 has no external pull-down on rev A. */
+    if (APP_SUCCESS != solenoid_lock_init())
+    {
+        ESP_LOGE(SYSTEM_TAG, "Solenoid init failed, the door cannot be unlocked");
+    }
     BOOT_MEM("start");
     esp_err_t nvs_ret = system_nvs_init();
     if (nvs_ret != ESP_OK)
