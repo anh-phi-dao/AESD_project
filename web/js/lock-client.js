@@ -1,7 +1,7 @@
 // View-only MQTT client for the smart lock. See docs/mqtt_protocol.md.
 //
 // There is intentionally no unlock method: the door can only be opened on site (keypad / NFC),
-// and the broker ACL does not let web accounts publish anything except history/req and voice/in.
+// and the broker ACL does not let web accounts publish anything except history/req, voice/in and voice/req.
 // Requires mqtt.js (global `mqtt`) loaded before this module.
 
 import { parseVoiceChunk, buildVoiceChunks, VoiceAssembler } from './voice.js';
@@ -10,9 +10,11 @@ const HISTORY_TIMEOUT_MS = 8000;
 const CONNECT_TIMEOUT_MS = 15000;
 const HISTORY_LIMIT_MAX = 50;
 const RECENT_MAX = 50; // firmware sends at most 20 events / 10 alerts; anything bigger is not from the lock
+const VOICE_INDEX_MAX = 20; // the lock keeps 10 guests' messages
+const VOICE_MS_MAX = 60000;
 const TEXT = new TextDecoder();
 
-const IN_TOPICS = ['status', 'event', 'alert', 'recent', 'history/resp', 'voice/out'];
+const IN_TOPICS = ['status', 'event', 'alert', 'recent', 'history/resp', 'voice/out', 'voice/index'];
 
 export class LockClient extends EventTarget {
   #client = null;
@@ -132,6 +134,21 @@ export class LockClient extends EventTarget {
     }
   }
 
+  // Asks the lock to send one of the guests' messages of voice/index (again) on voice/out.
+  requestVoice(id) {
+    return this.#voiceReq('get', id);
+  }
+
+  // Deletes one of the guests' messages on the lock, which then publishes voice/index without it.
+  deleteVoice(id) {
+    return this.#voiceReq('del', id);
+  }
+
+  #voiceReq(op, id) {
+    if (!this.connected) return Promise.reject(new Error('Chưa kết nối'));
+    return this.#client.publishAsync(this.#root + 'voice/req', JSON.stringify({ op, id }), { qos: 1 });
+  }
+
   #onMessage(topic, payload, packet) {
     if (!topic.startsWith(this.#root)) return;
     const suffix = topic.slice(this.#root.length);
@@ -172,6 +189,14 @@ export class LockClient extends EventTarget {
         if (done) this.#emit('voice', { ...done, receivedAt: Date.now() });
         break;
       }
+      case 'voice/index': {
+        // Retained: the guests' messages the lock still keeps, newest first.
+        const o = parseJson(bytes);
+        if (!o || !Array.isArray(o.items)) break;
+        const items = o.items.slice(0, VOICE_INDEX_MAX).map(parseVoiceItem).filter(Boolean);
+        this.#emit('voiceindex', { items });
+        break;
+      }
     }
   }
 
@@ -187,6 +212,15 @@ export class LockClient extends EventTarget {
   #emit(type, detail) {
     this.dispatchEvent(new CustomEvent(type, { detail }));
   }
+}
+
+function parseVoiceItem(x) {
+  if (!x || !Number.isInteger(x.id) || x.id < 1 || x.id > 0xffffffff) return null;
+  return {
+    id: x.id,
+    ts: Number.isInteger(x.ts) && x.ts >= 0 ? x.ts : 0,
+    ms: Number.isInteger(x.ms) && x.ms >= 0 && x.ms <= VOICE_MS_MAX ? x.ms : 0,
+  };
 }
 
 function friendlyError(err) {

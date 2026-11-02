@@ -13,6 +13,10 @@
  * boot_system_control() and before the fingerprint sensor, the card reader and the keypad. */
 void boot_storage(void);
 
+/* True when a credentials file is on the card but could not be read: what system_control holds is not the truth,
+ * so nothing may be deleted to match it (e.g. sensor templates). */
+bool storage_is_unreadable(void);
+
 /* Writes the credentials to the SD card each time the admin menu changes them. Returns at once when boot_storage()
  * could not load them, so a file that was there but unreadable is never overwritten. */
 void storage_task(void *pvParameter);

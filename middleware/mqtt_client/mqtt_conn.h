@@ -118,6 +118,10 @@ extern "C"
     /* Return true while the broker session is up. */
     bool mqtt_conn_is_connected(const mqtt_conn_instance_ctrl_t *const p_ctrl);
 
+    /* Bytes of QoS 1/2 messages waiting for the broker's acknowledgement. Large senders wait for it to drop, so the
+     * outbox never takes the RAM. 0 before init. */
+    size_t mqtt_conn_outbox_size(const mqtt_conn_instance_ctrl_t *const p_ctrl);
+
 #ifdef __cplusplus
 }
 #endif

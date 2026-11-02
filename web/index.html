@@ -34,7 +34,7 @@
       <p class="hint">Chế độ chỉ xem: xem lịch sử, nhận cảnh báo và tin nhắn thoại. Không thể mở cửa từ ứng dụng.</p>
       <form id="login-form" autocomplete="on">
         <label>Broker (WebSocket)
-          <input name="url" type="url" required placeholder="wss://broker.example.com:8884/mqtt">
+          <input name="url" type="url" required placeholder="wss://broker.example.com:8084/mqtt">
         </label>
         <label>Mã thiết bị
           <input name="deviceId" required pattern="[A-Za-z0-9_\-]{1,32}" placeholder="door01">
@@ -92,8 +92,9 @@
         <h2>Tin nhắn thoại</h2>
         <div class="voice-send">
           <button type="button" class="btn" id="record">Ghi âm gửi tới cửa</button>
-          <span class="hint" id="record-status">Tối đa 15 giây.</span>
+          <span class="hint" id="record-status">Tối đa 15 giây. Khóa giữ 5 tin mới nhất, khách giữ # để nghe.</span>
         </div>
+        <p class="hint">Lời nhắn khách để lại tại cửa. Chỉ bạn nghe được, kể cả tin gửi lúc trang đang đóng.</p>
         <ul class="list" id="voices"><li class="empty">Chưa có tin nhắn thoại.</li></ul>
       </section>
     </div>

@@ -11,10 +11,14 @@
 #include "pn532_driver.h"
 #include "pn532_driver_i2c.h"
 #include "system_control.h"
+#include <stdbool.h>
 
 #define RFID_TAG "RFID"
 
 void boot_rfid(void);
+
+/* True when the PN532 answered at boot (and owns the I2C bus). */
+bool rfid_task_is_ready(void);
 void rfid_task(void *pvParameter);
 
 #endif

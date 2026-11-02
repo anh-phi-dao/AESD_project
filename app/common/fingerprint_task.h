@@ -10,8 +10,8 @@
  * Call after boot_system_control(). */
 void boot_fingerprint(void);
 
-/* Deletes this user's template in the sensor. Only queues it: the fingerprint task is the only one on the UART.
+/* Deletes the template at this sensor page. Only queues it: the fingerprint task is the only one on the UART.
  * Safe from any task; does nothing without a sensor. */
-void fingerprint_task_request_delete(uint8_t user);
+void fingerprint_task_request_delete(uint8_t page);
 
 #endif

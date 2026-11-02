@@ -8,19 +8,40 @@
 #define CHUNK_SAMPLES    256U
 #define PLAYBACK_GAIN    4 /* the microphone is quiet, raise it for playback */
 
+static SemaphoreHandle_t s_speaker_lock = NULL;
+
 void boot_audio()
 {
     audio_init_management(&audio_management_object);
+    s_speaker_lock = xSemaphoreCreateMutex();
     ESP_ERROR_CHECK(inm441_i2s_mic_init());
     ESP_ERROR_CHECK(ns4168_speaker_init());
 }
 
+bool audio_task_speaker_take(TickType_t wait)
+{
+    return (NULL != s_speaker_lock) && (pdTRUE == xSemaphoreTake(s_speaker_lock, wait));
+}
+
+void audio_task_speaker_give(void)
+{
+    (void)xSemaphoreGive(s_speaker_lock);
+}
+
 static void play_beep(void)
 {
+    if (!audio_task_speaker_take(0))
+    {
+        return; /* A message is playing or recording: no beep over it. */
+    }
 #if DEBUG_AUDIO_TASK
     ESP_LOGI(AUDIO_TASK_TAG, ">> Beep...");
 #endif
-    ESP_ERROR_CHECK(ns4168_speaker_start_playback());
+    if (ESP_OK != ns4168_speaker_start_playback())
+    {
+        audio_task_speaker_give();
+        return; /* No beep rather than a restart of the lock. */
+    }
 
     int16_t beep[CHUNK_SAMPLES * 2U];
     for (size_t pos = 0; pos < RECORD_SAMPLES; pos += CHUNK_SAMPLES)
@@ -37,16 +58,19 @@ static void play_beep(void)
         }
 
         size_t written = 0;
-        if (audio_get_state(&audio_management_object) >= AUDIO_PLAYING)
+        if (audio_get_state(&audio_management_object) < AUDIO_PLAYING)
         {
-            if (ESP_OK != ns4168_speaker_write(beep, sizeof(beep), &written, 200))
-            {
-                ESP_LOGE(AUDIO_TASK_TAG, "speaker write failed");
-            }
+            break; /* Key released: stop now, and free the speaker for a message. */
+        }
+        if (ESP_OK != ns4168_speaker_write(beep, sizeof(beep), &written, 200))
+        {
+            ESP_LOGE(AUDIO_TASK_TAG, "speaker write failed");
+            break;
         }
     }
 
-    ESP_ERROR_CHECK(ns4168_speaker_stop_playback());
+    (void)ns4168_speaker_stop_playback();
+    audio_task_speaker_give();
 #if DEBUG_AUDIO_TASK
     ESP_LOGI(AUDIO_TASK_TAG, "Beep done");
 #endif

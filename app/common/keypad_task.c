@@ -213,7 +213,8 @@ void boot_pcf7584(void)
              PCF_INT_PIN,
              PCF_I2C_ADDR);
 
-    app_err_t ret = pcf8574_init(&pcf_ctrl, &pcf_cfg, false);
+    /* The bus is boot_rfid()'s when the PN532 answered; without it boot_rfid() released the bus, so make our own. */
+    app_err_t ret = pcf8574_init(&pcf_ctrl, &pcf_cfg, !rfid_task_is_ready());
     if (ret != APP_SUCCESS)
     {
         ESP_LOGE(KEYPAD_TAG, "pcf8574_init failed with application error: %d", ret);

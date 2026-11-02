@@ -8,7 +8,8 @@
  * Macro definitions
  **********************************************************************************************************************/
 
-#define UI_FLOW_TASK_STACK      4096U
+/* LVGL calls nest deep on a screen change, and the list rows use snprintf / strftime: 4 KB overflowed in -O0 builds. */
+#define UI_FLOW_TASK_STACK      8192U
 #define UI_FLOW_TASK_PRIORITY   2U
 #define UI_FLOW_TICK_MS         100U /* How often system_control is read and the screen follows it. */
 #define UI_FLOW_LOCK_TIMEOUT_MS 200U

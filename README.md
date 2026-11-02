@@ -13,7 +13,7 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 
 | Phần | Trạng thái |
 | WiFi + đồng bộ giờ SNTP (`app/network_manager`) | Xong, em đã chạy thử trên module |
-| MQTT qua TLS (`middleware/mqtt_client`) | Xong, đã kết nối HiveMQ Cloud |
+| MQTT qua TLS (`middleware/mqtt_client`) | Xong, đã kết nối EMQX Cloud Serverless |
 | Đọc credential từ NVS (`app/device_config`) | Xong |
 | Trang web chỉ xem (`web/`) | Xong: trạng thái online/offline, lịch sử, cảnh báo (banner + âm báo, báo cả cảnh báo lỡ khi đóng trang), tin nhắn thoại |
 | Lịch sử gần nhất (`app/event_log`) | Xong: 20 sự kiện + 10 cảnh báo, lưu NVS, giữ qua khởi động lại. Log đầy đủ chờ thẻ SD |
@@ -110,10 +110,10 @@ Board dev ESP32-S3 **N16R8** chạy nguyên cấu hình này mà không cần s�
 ### Cần chuẩn bị
 - ESP-IDF **v5.5.5** (mở bằng ESP-IDF PowerShell), Python 3, board ESP32-S3.
 - WiFi **2.4 GHz**, bảo mật WPA2/WPA3, mật khẩu từ 8 ký tự. Hotspot iPhone cần bật "Maximize Compatibility".
-- Một broker MQTT. Nhanh nhất là HiveMQ Cloud bản miễn phí:
-  - Tạo cluster, rồi tạo **2 tài khoản**: một cho thiết bị (ví dụ `door01`), một cho web (ví dụ `owner`).
-  - Thiết bị dùng `mqtts://<host>:8883`, web dùng `wss://<host>:8884/mqtt`. Kiểm tra lại cổng và đường
-    dẫn trong trang quản lý của broker.
+- Một broker MQTT. Nhóm dùng EMQX Cloud Serverless bản miễn phí:
+  - Tạo deployment Serverless, rồi tạo **2 tài khoản**: một cho thiết bị (`door01`), một cho web (`owner_door01`),
+    và phân quyền theo [docs/deploy_web.md](docs/deploy_web.md) mục 3.
+  - Thiết bị dùng `mqtts://<address>:8883`, web dùng `wss://<address>:8084/mqtt` (địa chỉ ở trang Overview).
   - Muốn tự host thì xem [broker/mosquitto/README.md](broker/mosquitto/README.md).
 
 ### Các bước
@@ -153,7 +153,7 @@ cd web
 python -m http.server 8000
 ```
 Vào `http://localhost:8000` rồi đăng nhập:
-- **Broker:** `wss://<host>:8884/mqtt`
+- **Broker:** `wss://<address>:8084/mqtt` (đã điền sẵn trong `web/config.js`)
 - **Mã thiết bị:** `door01`
 - **Tài khoản:** tài khoản web
 

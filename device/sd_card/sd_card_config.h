@@ -31,7 +31,7 @@
 #endif
 
 /* SD card filesystem and buffer limits. */
-#define SD_CARD_MAX_FILES            10U
+#define SD_CARD_MAX_FILES            5U /* Each costs ~0.6 KB of RAM. Open at once: credentials, a voice file, a message from the web. */
 #define SD_CARD_ALLOCATION_UNIT_SIZE (16U * 1024U)
 #define SD_MAX_DIRECTORY_DEPTH       8
 #define SD_CARD_FILE_BUF_SIZE        8192U

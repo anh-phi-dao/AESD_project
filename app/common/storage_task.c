@@ -18,8 +18,8 @@
 #define STORAGE_FILE        "CREDS.TXT"
 #define STORAGE_FILE_TMP    "CREDS.TMP" /* Written first, then renamed: a power cut never leaves half a file. */
 #define STORAGE_FILE_BAK    "CREDS.BAK" /* The previous CREDS.TXT, read when CREDS.TXT is missing. */
-#define STORAGE_VERSION     1U
-#define STORAGE_BUFFER_SIZE 2048U /* 20 users with a PIN, a card and a finger take about 1.2 KB. */
+#define STORAGE_VERSION     2U          /* 1: one card and one finger per user, by user ID. Still read. */
+#define STORAGE_BUFFER_SIZE 3072U       /* Full: 20 PINs, 20 cards, 40 fingers take about 2 KB. */
 
 /***********************************************************************************************************************
  * Private function prototypes
@@ -28,8 +28,8 @@
 static esp_err_t storage_load(void);
 static esp_err_t storage_read(const char *p_name);
 static bool      storage_parse(char *p_text, system_credentials_t *const p_cred);
-static bool      storage_parse_line(char *p_line, system_credentials_t *const p_cred);
-static uint8_t   storage_parse_user(const char *p_text);
+static bool      storage_parse_line(char *p_line, unsigned version, system_credentials_t *const p_cred);
+static int       storage_parse_num(const char *p_text, unsigned max);
 static uint8_t   storage_parse_hex(const char *p_text, uint8_t *p_out, uint8_t out_max);
 static esp_err_t storage_save(const system_credentials_t *const p_cred);
 static bool      storage_format(const system_credentials_t *const p_cred, char *p_out, size_t out_size);
@@ -43,8 +43,9 @@ static void      storage_wipe(void);
 static char                 s_buffer[STORAGE_BUFFER_SIZE];
 static system_credentials_t s_cred;
 
-static bool     s_ready     = false; /* Card mounted and credentials loaded: changes may be saved. */
-static uint32_t s_saved_seq = 0U;    /* system_control credentials_seq of what is on the card. */
+static bool     s_ready      = false; /* Card mounted and credentials loaded: changes may be saved. */
+static bool     s_unreadable = false; /* A credentials file is there but could not be read. */
+static uint32_t s_saved_seq  = 0U;    /* system_control credentials_seq of what is on the card. */
 
 /***********************************************************************************************************************
  * Public APIs
@@ -78,9 +79,15 @@ void boot_storage(void)
     {
         /* Do not save over a file that is there but could not be read: fixing the card must bring the users back. */
         ESP_LOGE(STORAGE_TASK_TAG, "Credentials file unreadable (%s), changes will not be saved", esp_err_to_name(ret));
+        s_unreadable = true;
         return;
     }
     s_ready = true;
+}
+
+bool storage_is_unreadable(void)
+{
+    return s_unreadable;
 }
 
 void storage_task(void *pvParameter)
@@ -168,8 +175,14 @@ static esp_err_t storage_read(const char *p_name)
     for (uint8_t i = 0U; i < SYSTEM_USER_COUNT; i++)
     {
         pins += ('\0' != s_cred.pins[i][0]) ? 1U : 0U;
-        cards += (0U != s_cred.card_len[i]) ? 1U : 0U;
-        fingers += s_cred.fingers[i] ? 1U : 0U;
+    }
+    for (uint8_t i = 0U; i < SYSTEM_CARD_SLOTS; i++)
+    {
+        cards += (0U != s_cred.card_user[i]) ? 1U : 0U;
+    }
+    for (uint8_t i = 0U; i < SYSTEM_FINGER_SLOTS; i++)
+    {
+        fingers += (0U != s_cred.finger_user[i]) ? 1U : 0U;
     }
     ESP_LOGI(STORAGE_TASK_TAG, "Loaded %u PINs, %u cards, %u fingers from %s", pins, cards, fingers, p_name);
     return ESP_OK;
@@ -177,16 +190,18 @@ static esp_err_t storage_read(const char *p_name)
 
 /***********************************************************************************************************************
  * One entry per line, '#' starts a comment:
- *   VERSION,1
+ *   VERSION,2
  *   PIN,<user>,<digits>
- *   CARD,<user>,<UID in hex>
- *   FINGER,<user>         (the template is in the sensor, at page <user>)
- * A bad line is skipped; a file of another version is refused, so it is not overwritten in a format it does not have.
+ *   CARD,<slot>,<user>,<UID in hex>
+ *   FINGER,<slot>,<user>,<finger 0..10>   (the template is in the sensor, at page <slot> + 1)
+ * Version 1 had CARD,<user>,<hex> and FINGER,<user>: read into slot <user> - 1, which is the same sensor page, with
+ * the finger unknown. The next save writes version 2. A bad line is skipped; an unknown version is refused, so it is
+ * not overwritten in a format it does not have.
  **********************************************************************************************************************/
 static bool storage_parse(char *p_text, system_credentials_t *const p_cred)
 {
-    bool  version_ok = false;
-    char *p_save     = NULL;
+    unsigned version = 0U;
+    char    *p_save  = NULL;
 
     for (char *p_line = strtok_r(p_text, "\n", &p_save); NULL != p_line; p_line = strtok_r(NULL, "\n", &p_save))
     {
@@ -197,77 +212,109 @@ static bool storage_parse(char *p_text, system_credentials_t *const p_cred)
         }
         if (0 == strncmp(p_line, "VERSION,", 8))
         {
-            version_ok = (STORAGE_VERSION == strtoul(&p_line[8], NULL, 10));
-            if (!version_ok)
+            version = (unsigned)strtoul(&p_line[8], NULL, 10);
+            if ((1U != version) && (STORAGE_VERSION != version))
             {
                 ESP_LOGE(STORAGE_TASK_TAG, "Unknown file version: %s", &p_line[8]);
                 return false;
             }
             continue;
         }
-        if (!storage_parse_line(p_line, p_cred))
+        if ((0U == version) || !storage_parse_line(p_line, version, p_cred))
         {
             /* The line itself is not logged: it may hold a PIN. */
             ESP_LOGW(STORAGE_TASK_TAG, "Bad line in the credentials file skipped");
         }
     }
 
-    if (!version_ok)
+    if (0U == version)
     {
         ESP_LOGE(STORAGE_TASK_TAG, "Credentials file has no VERSION line");
     }
-    return version_ok;
+    return 0U != version;
 }
 
-static bool storage_parse_line(char *p_line, system_credentials_t *const p_cred)
+static bool storage_parse_line(char *p_line, unsigned version, system_credentials_t *const p_cred)
 {
-    char       *p_save  = NULL;
-    const char *p_kind  = strtok_r(p_line, ",", &p_save);
-    const char *p_user  = strtok_r(NULL, ",", &p_save);
-    const char *p_value = strtok_r(NULL, ",", &p_save);
-    const uint8_t user  = (NULL != p_user) ? storage_parse_user(p_user) : 0U;
+    char       *p_save      = NULL;
+    const char *p_fields[4] = {NULL, NULL, NULL, NULL};
 
-    if ((NULL == p_kind) || (0U == user))
+    p_fields[0] = strtok_r(p_line, ",", &p_save);
+    for (uint8_t i = 1U; (i < 4U) && (NULL != p_fields[i - 1U]); i++)
+    {
+        p_fields[i] = strtok_r(NULL, ",", &p_save);
+    }
+    if ((NULL == p_fields[0]) || (NULL == p_fields[1]))
     {
         return false;
     }
-    const uint8_t i = (uint8_t)(user - 1U);
 
-    if (0 == strcmp(p_kind, "PIN"))
+    if (0 == strcmp(p_fields[0], "PIN"))
     {
+        const int user = storage_parse_num(p_fields[1], SYSTEM_USER_COUNT);
         /* Digits and length are checked by system_control_set_credentials(). */
-        if ((NULL == p_value) || (strlen(p_value) > SYSTEM_ENTRY_MAX))
+        if ((user < 1) || (NULL == p_fields[2]) || (strlen(p_fields[2]) > SYSTEM_ENTRY_MAX))
         {
             return false;
         }
-        (void)snprintf(p_cred->pins[i], sizeof(p_cred->pins[i]), "%s", p_value);
+        (void)snprintf(p_cred->pins[user - 1U], sizeof(p_cred->pins[0]), "%s", p_fields[2]);
         return true;
     }
-    if (0 == strcmp(p_kind, "CARD"))
+
+    /* Version 1: <user> only, slot = user - 1 (the same sensor page). Version 2: <slot>,<user>. */
+    const bool  v1      = (1U == version);
+    const int   user    = storage_parse_num(v1 ? p_fields[1] : p_fields[2], SYSTEM_USER_COUNT);
+    const int   slot    = v1 ? (user - 1) : storage_parse_num(p_fields[1], SYSTEM_FINGER_SLOTS - 1U);
+    const char *p_value = v1 ? p_fields[2] : p_fields[3];
+
+    if ((user < 1) || (slot < 0))
     {
-        const uint8_t len = (NULL != p_value) ? storage_parse_hex(p_value, p_cred->cards[i], SYSTEM_UID_MAX) : 0U;
-        p_cred->card_len[i] = len;
-        return 0U != len;
+        return false;
     }
-    if (0 == strcmp(p_kind, "FINGER"))
+
+    if (0 == strcmp(p_fields[0], "CARD"))
     {
-        p_cred->fingers[i] = true;
+        if ((slot >= (int)SYSTEM_CARD_SLOTS) || (NULL == p_value))
+        {
+            return false;
+        }
+        const uint8_t len = storage_parse_hex(p_value, p_cred->cards[slot], SYSTEM_UID_MAX);
+        if (0U == len)
+        {
+            return false;
+        }
+        p_cred->card_user[slot] = (uint8_t)user;
+        p_cred->card_len[slot]  = len;
+        return true;
+    }
+    if (0 == strcmp(p_fields[0], "FINGER"))
+    {
+        const unsigned long finger
+            = v1 ? SYSTEM_FINGER_UNKNOWN
+                 : ((NULL != p_value) ? strtoul(p_value, NULL, 10) : (SYSTEM_FINGER_UNKNOWN + 1UL));
+        if (finger > SYSTEM_FINGER_UNKNOWN)
+        {
+            return false;
+        }
+        p_cred->finger_user[slot] = (uint8_t)user;
+        p_cred->finger_id[slot]   = (uint8_t)finger;
         return true;
     }
     return false;
 }
 
-/* 1..SYSTEM_USER_COUNT, or 0. */
-static uint8_t storage_parse_user(const char *p_text)
+/* 0..max, or -1 when the text is not such a number. */
+static int storage_parse_num(const char *p_text, unsigned max)
 {
-    char               *p_end = NULL;
-    const unsigned long value = strtoul(p_text, &p_end, 10);
+    char         *p_end = NULL;
+    unsigned long value = 0UL;
 
-    if ((p_end == p_text) || ('\0' != *p_end) || (value < 1UL) || (value > SYSTEM_USER_COUNT))
+    if ((NULL == p_text) || ('\0' == p_text[0]))
     {
-        return 0U;
+        return -1;
     }
-    return (uint8_t)value;
+    value = strtoul(p_text, &p_end, 10);
+    return (('\0' != *p_end) || (value > max)) ? -1 : (int)value;
 }
 
 /* Bytes decoded, or 0 for an odd length, a non-hex character or more than out_max bytes. */
@@ -317,35 +364,46 @@ static esp_err_t storage_save(const system_credentials_t *const p_cred)
 
 static bool storage_format(const system_credentials_t *const p_cred, char *p_out, size_t out_size)
 {
-    int used = snprintf(p_out,
-                        out_size,
-                        "# Smart lock credentials, written by the lock. PINs are in clear: keep this card in the lock.\n"
-                        "VERSION,%u\n",
-                        STORAGE_VERSION);
+    int used
+        = snprintf(p_out,
+                   out_size,
+                   "# Smart lock credentials, written by the lock. PINs are in clear: keep this card in the lock.\n"
+                   "VERSION,%u\n",
+                   STORAGE_VERSION);
 
     for (uint8_t i = 0U; (i < SYSTEM_USER_COUNT) && (used >= 0) && ((size_t)used < out_size); i++)
     {
-        const unsigned user = i + 1U;
-
         if ('\0' != p_cred->pins[i][0])
         {
-            used += snprintf(&p_out[used], out_size - (size_t)used, "PIN,%u,%s\n", user, p_cred->pins[i]);
+            used += snprintf(&p_out[used], out_size - (size_t)used, "PIN,%u,%s\n", i + 1U, p_cred->pins[i]);
         }
-        if ((0U != p_cred->card_len[i]) && ((size_t)used < out_size))
+    }
+    for (uint8_t i = 0U; (i < SYSTEM_CARD_SLOTS) && (used >= 0) && ((size_t)used < out_size); i++)
+    {
+        if (0U == p_cred->card_user[i])
         {
-            used += snprintf(&p_out[used], out_size - (size_t)used, "CARD,%u,", user);
-            for (uint8_t b = 0U; (b < p_cred->card_len[i]) && ((size_t)used < out_size); b++)
-            {
-                used += snprintf(&p_out[used], out_size - (size_t)used, "%02X", p_cred->cards[i][b]);
-            }
-            if ((size_t)used < out_size)
-            {
-                used += snprintf(&p_out[used], out_size - (size_t)used, "\n");
-            }
+            continue;
         }
-        if (p_cred->fingers[i] && ((size_t)used < out_size))
+        used += snprintf(&p_out[used], out_size - (size_t)used, "CARD,%u,%u,", i, p_cred->card_user[i]);
+        for (uint8_t b = 0U; (b < p_cred->card_len[i]) && (used >= 0) && ((size_t)used < out_size); b++)
         {
-            used += snprintf(&p_out[used], out_size - (size_t)used, "FINGER,%u\n", user);
+            used += snprintf(&p_out[used], out_size - (size_t)used, "%02X", p_cred->cards[i][b]);
+        }
+        if ((used >= 0) && ((size_t)used < out_size))
+        {
+            used += snprintf(&p_out[used], out_size - (size_t)used, "\n");
+        }
+    }
+    for (uint8_t i = 0U; (i < SYSTEM_FINGER_SLOTS) && (used >= 0) && ((size_t)used < out_size); i++)
+    {
+        if (0U != p_cred->finger_user[i])
+        {
+            used += snprintf(&p_out[used],
+                             out_size - (size_t)used,
+                             "FINGER,%u,%u,%u\n",
+                             i,
+                             p_cred->finger_user[i],
+                             p_cred->finger_id[i]);
         }
     }
     return (used >= 0) && ((size_t)used < out_size);

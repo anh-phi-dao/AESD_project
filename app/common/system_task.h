@@ -8,6 +8,7 @@
 
 #define SYSTEM_CONTROL_TAG     "SYSTEM_CONTROL"
 #define SYSTEM_CONTROL_TICK_MS 100U /* Timeouts and countdowns of system_control. */
+#define SYSTEM_RAM_LOG_TICKS   600U /* RAM usage in the log once a minute. */
 
 /* Starts system_control (docs/ui_data.md) and connects its decisions to the event log, the door and the audio.
  * Call before the keypad, the card reader and the screen flow. */

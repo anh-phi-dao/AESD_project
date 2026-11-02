@@ -6,17 +6,19 @@
 #include "esp_log.h"
 #include "fingerprint_sensor.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
+#include "storage_task.h"
 #include "system_control.h"
 
 #define FINGERPRINT_POLL_MS 100U
 
-/* Sensor page of a user: page = user ID (1..SYSTEM_USER_COUNT). */
+/* Sensor page of a finger slot: page = slot + 1 (1..SYSTEM_FINGER_SLOTS). */
 
-static TaskHandle_t      s_task         = NULL;
-static volatile uint32_t s_delete_mask  = 0U;    /* Bit n: delete page n. Set by any task, cleared here. */
-static bool              s_need_release = false; /* One action per touch: wait until the finger is lifted. */
-static uint16_t          s_pending_page = 0U;    /* Stored after scan 2, not yet confirmed by scan 3. */
+static TaskHandle_t  s_task         = NULL;
+static QueueHandle_t s_delete_queue = NULL;  /* Pages to delete. Sent by any task, handled here. */
+static bool          s_need_release = false; /* One action per touch: wait until the finger is lifted. */
+static uint16_t      s_pending_page = 0U;    /* Stored after scan 2, not yet confirmed by scan 3. */
 
 static void fingerprint_task(void *pvParameter);
 static void fingerprint_identify(void);
@@ -31,6 +33,12 @@ void boot_fingerprint(void)
         ESP_LOGW(FINGERPRINT_TASK_TAG, "No fingerprint sensor, fingerprints disabled");
         return;
     }
+    s_delete_queue = xQueueCreate(SYSTEM_FINGER_SLOTS, sizeof(uint8_t));
+    if (NULL == s_delete_queue)
+    {
+        ESP_LOGE(FINGERPRINT_TASK_TAG, "No memory for the delete queue");
+        return;
+    }
     fingerprint_drop_unknown();
     if (pdPASS != xTaskCreatePinnedToCore(fingerprint_task, "fingerprint", FINGERPRINT_TASK_STACK, NULL, 1, &s_task, 1))
     {
@@ -38,13 +46,16 @@ void boot_fingerprint(void)
     }
 }
 
-void fingerprint_task_request_delete(uint8_t user)
+void fingerprint_task_request_delete(uint8_t page)
 {
-    if ((NULL == s_task) || (0U == user) || (user > SYSTEM_USER_COUNT))
+    if ((NULL == s_delete_queue) || (0U == page) || (page > SYSTEM_FINGER_SLOTS))
     {
         return;
     }
-    __atomic_fetch_or(&s_delete_mask, 1UL << user, __ATOMIC_RELAXED);
+    if (pdTRUE != xQueueSend(s_delete_queue, &page, 0))
+    {
+        ESP_LOGW(FINGERPRINT_TASK_TAG, "Delete queue full, template of page %u kept", page);
+    }
 }
 
 /***********************************************************************************************************************
@@ -54,7 +65,7 @@ void fingerprint_task_request_delete(uint8_t user)
 static void fingerprint_task(void *pvParameter)
 {
     (void)pvParameter;
-    system_view_t view;
+    static system_view_t view; /* ~400 bytes: off the stack. */
 
     while (1)
     {
@@ -116,9 +127,9 @@ static void fingerprint_identify(void)
     }
 
     uint16_t page = 0U;
-    if ((ESP_OK == fingerprint_sensor_search(1U, &page)) && (page >= 1U) && (page <= SYSTEM_USER_COUNT))
+    if ((ESP_OK == fingerprint_sensor_search(1U, &page)) && (page >= 1U) && (page <= SYSTEM_FINGER_SLOTS))
     {
-        system_control_finger((uint8_t)page); /* Unknown when that ID has no finger in system_control. */
+        system_control_finger((uint8_t)page); /* Unknown when that slot is free in system_control. */
     }
     else
     {
@@ -135,7 +146,7 @@ static void fingerprint_identify(void)
 static void fingerprint_enroll_step(const system_view_t *const p_view)
 {
     const uint8_t   scan = p_view->scan_count;
-    const uint16_t  page = p_view->scan_user;
+    const uint16_t  page = (uint16_t)(p_view->scan_slot + 1U);
     const esp_err_t ret  = fingerprint_sensor_capture((0U == scan) ? 1U : 2U);
 
     if (ESP_ERR_NOT_FOUND == ret)
@@ -152,8 +163,20 @@ static void fingerprint_enroll_step(const system_view_t *const p_view)
     switch (scan)
     {
         case 0U:
+        {
+            /* A finger already in the library would win every later search: refuse it, or drop a leftover. */
+            uint16_t found = 0U;
+            if (ESP_OK == fingerprint_sensor_search(1U, &found))
+            {
+                if (system_control_finger_scan_duplicate((uint8_t)found))
+                {
+                    break;
+                }
+                (void)fingerprint_sensor_delete(found, 1U);
+            }
             system_control_finger_scanned(true);
             break;
+        }
 
         case 1U:
             if (ESP_OK == fingerprint_sensor_merge_store(page))
@@ -195,17 +218,24 @@ static void fingerprint_enroll_step(const system_view_t *const p_view)
 static void fingerprint_drop_unknown(void)
 {
     static system_credentials_t s_cred; /* Static: too big for the boot stack. Only fingers are used, PINs wiped. */
-    bool                        ok = system_control_get_credentials(&s_cred, NULL);
 
-    for (uint8_t first = 1U; ok && (first <= SYSTEM_USER_COUNT);)
+    if (storage_is_unreadable())
     {
-        if (s_cred.fingers[first - 1U])
+        /* system_control does not hold the real list: deleting to match it would lose every finger. */
+        ESP_LOGW(FINGERPRINT_TASK_TAG, "Credentials not loaded, sensor templates kept");
+        return;
+    }
+
+    bool ok = system_control_get_credentials(&s_cred, NULL);
+    for (uint8_t first = 1U; ok && (first <= SYSTEM_FINGER_SLOTS);)
+    {
+        if (0U != s_cred.finger_user[first - 1U])
         {
             first++;
             continue;
         }
         uint8_t count = 1U;
-        while (((first + count) <= SYSTEM_USER_COUNT) && !s_cred.fingers[first + count - 1U])
+        while (((first + count) <= SYSTEM_FINGER_SLOTS) && (0U == s_cred.finger_user[first + count - 1U]))
         {
             count++;
         }
@@ -221,14 +251,11 @@ static void fingerprint_drop_unknown(void)
 
 static void fingerprint_do_deletes(void)
 {
-    const uint32_t mask = __atomic_exchange_n(&s_delete_mask, 0U, __ATOMIC_RELAXED);
+    uint8_t page = 0U;
 
-    for (uint8_t user = 1U; user <= SYSTEM_USER_COUNT; user++)
+    while (pdTRUE == xQueueReceive(s_delete_queue, &page, 0))
     {
-        if (0U != (mask & (1UL << user)))
-        {
-            const esp_err_t ret = fingerprint_sensor_delete(user, 1U);
-            ESP_LOGI(FINGERPRINT_TASK_TAG, "Template of user %u deleted: %s", user, esp_err_to_name(ret));
-        }
+        const esp_err_t ret = fingerprint_sensor_delete(page, 1U);
+        ESP_LOGI(FINGERPRINT_TASK_TAG, "Template of page %u deleted: %s", page, esp_err_to_name(ret));
     }
 }

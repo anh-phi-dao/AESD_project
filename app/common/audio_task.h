@@ -17,4 +17,9 @@
 void boot_audio();
 void audio_task();
 
+/* The speaker and the microphone share one I2S bus: whoever plays or records holds this. The key beep only plays
+ * when it is free, so it never cuts into a message. False when not taken within wait. */
+bool audio_task_speaker_take(TickType_t wait);
+void audio_task_speaker_give(void);
+
 #endif

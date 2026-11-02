@@ -25,6 +25,8 @@ typedef struct
 static esp_err_t pn532_init_io(pn532_io_handle_t io_handle);
 static void pn532_release_driver(pn532_io_handle_t io_handle);
 static void pn532_release_io(pn532_io_handle_t io_handle);
+#define PN532_I2C_POLL_MS 10 /* Between two "ready?" reads while the PN532 works or waits for a card. */
+
 static esp_err_t pn532_read(pn532_io_handle_t io_handle, uint8_t *read_buffer, size_t read_size, int xfer_timeout_ms);
 static esp_err_t pn532_write(pn532_io_handle_t io_handle, const uint8_t *write_buffer, size_t write_size, int xfer_timeout_ms);
 static esp_err_t pn532_is_ready(pn532_io_handle_t io_handle);
@@ -308,6 +310,12 @@ esp_err_t pn532_read(pn532_io_handle_t io_handle, uint8_t *read_buffer, size_t r
         if (result == ESP_OK && rx_buffer[0] == 0x01)
         {
             is_ready = true;
+        }
+        else
+        {
+            /* Not ready (no card yet): leave the bus to the keypad PCF8574 for a while. Polling back to back kept the
+             * bus busy all the time, the keypad timed out, and the driver's bus reset left the PN532 holding SCL. */
+            vTaskDelay(pdMS_TO_TICKS(PN532_I2C_POLL_MS));
         }
         elapsed_ticks = xTaskGetTickCount() - start_ticks;
     }

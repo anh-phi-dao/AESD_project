@@ -13,7 +13,7 @@ set(APP_REQUIRES auth_manager
                  remote_service
                  ui_service
                  door_sim)
-idf_component_register(SRCS "storage_task.c" "fingerprint_task.c" "system_task.c" 
+idf_component_register(SRCS "voice_task.c" "system_task.c" 
                             "rfid_task.c" 
                             "network_task.c" 
                             "keypad_task.c"
@@ -22,5 +22,6 @@ idf_component_register(SRCS "storage_task.c" "fingerprint_task.c" "system_task.c
                             "audio_task.c"
                             "storage_task.c"
                             "fingerprint_task.c"
+                            "voice_task.c"
                        INCLUDE_DIRS "."
-                       REQUIRES util driver ${DEVICE_REQUIRES} ${APP_REQUIRES})
+                       REQUIRES util driver json ${DEVICE_REQUIRES} ${APP_REQUIRES})

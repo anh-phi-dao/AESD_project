@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include "event_log.h"
+#include "mqtt_conn.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -36,5 +37,11 @@ event_log_instance_ctrl_t *network_task_get_event_log(void);
  * True while Wi-Fi has an IP address. False before network_task started it or without device credentials.
  **********************************************************************************************************************/
 bool network_task_is_wifi_connected(void);
+
+/***********************************************************************************************************************
+ * The MQTT connection, for the voice task to publish. NULL until network_task started it; check
+ * mqtt_conn_is_connected() before publishing.
+ **********************************************************************************************************************/
+mqtt_conn_instance_ctrl_t *network_task_get_mqtt(void);
 
 #endif

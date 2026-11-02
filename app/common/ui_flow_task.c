@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,9 +23,14 @@
 #define UI_FLOW_TAG          "UI_FLOW"
 #define UI_FLOW_BAR_WIDTH    240U /* Width of ui_VoiceTrack and ui_StatusTrack. */
 #define UI_FLOW_WIFI_POLL_MS 1000U
-#define UI_FLOW_DETAIL_SIZE  32U
+#define UI_FLOW_DETAIL_SIZE  40U
+#define UI_FLOW_LIST_ROWS    4U /* ui_MenuRow1..4: the window of a long list. */
+#define UI_FLOW_ROW_STEP     26 /* Pixels between two rows of ui_MenuList. */
+#define UI_FLOW_ROW_TOP      (-39)
+#define UI_FLOW_SCROLL_H     100 /* Height of the scroll track in ui_MenuList. */
 #define UI_FLOW_TOPBAR_USER  "SMART LOCK"
 #define UI_FLOW_TOPBAR_ADMIN "ADMIN MODE"
+#define UI_FLOW_ICON_SIZE    8U
 
 /***********************************************************************************************************************
  * Typedef definitions
@@ -43,27 +49,43 @@ typedef struct st_ui_flow_ctx
     TickType_t                  wifi_tick;
     int32_t                     shown_seconds;
     int16_t                     shown_scans; /* ADMIN_SCAN: scan count last drawn. */
+    int16_t                     shown_sel;   /* ADMIN_LIST: highlighted row last drawn. */
+    int16_t                     shown_count; /* ADMIN_LIST: rows last drawn. */
+    uint8_t                     list_top;    /* ADMIN_LIST: first row in the window. */
+    system_list_purpose_t       purpose;
     int32_t                     shown_entry; /* -1: redraw. Length, plus the text for visible fields. */
     char                        shown_text[SYSTEM_ENTRY_MAX + 1U];
     int8_t                      shown_unlocked;
     int16_t                     shown_messages;
-    int8_t                      wifi_shown; /* -1 not drawn yet, 0 off, 1 on. */
+    uint32_t                    shown_msg_sig; /* MSG_LIST: the messages last drawn. */
+    int8_t                      wifi_shown;    /* -1 not drawn yet, 0 off, 1 on. */
 } ui_flow_ctx_t;
 
 /***********************************************************************************************************************
  * Private function prototypes
  **********************************************************************************************************************/
 
-static void ui_flow_task(void *pvParameter);
-static void ui_flow_enter(const system_view_t *const p_view);
-static void ui_flow_refresh(const system_view_t *const p_view);
-static void ui_flow_refresh_field(lv_obj_t *p_field, const system_view_t *const p_view, bool secret);
-static void ui_flow_refresh_countdown(const system_view_t *const p_view);
-static void ui_flow_notice(const system_view_t *const p_view);
-static void ui_flow_set_input(const system_view_t *const p_view);
-static void ui_flow_set_status(const char *p_icon, const char *p_title, const char *p_detail, const char *p_hint);
-static void ui_flow_menu_set(
-    const char *p_title, const char *p_r1, const char *p_r2, const char *p_r3, const char *p_r4);
+static void     ui_flow_task(void *pvParameter);
+static void     ui_flow_enter(const system_view_t *const p_view);
+static void     ui_flow_refresh(const system_view_t *const p_view);
+static void     ui_flow_refresh_field(lv_obj_t *p_field, const system_view_t *const p_view, bool secret);
+static void     ui_flow_refresh_countdown(const system_view_t *const p_view);
+static void     ui_flow_notice(const system_view_t *const p_view);
+static void     ui_flow_set_input(const system_view_t *const p_view);
+static void     ui_flow_list_create(void);
+static void     ui_flow_list_show(bool show);
+static void     ui_flow_list_draw(const system_view_t *const p_view);
+static void     ui_flow_item_text(const system_view_t *const p_view,
+                                  const system_list_item_t  *p_item,
+                                  char                      *p_out,
+                                  size_t                     size);
+static void     ui_flow_owner_text(system_cred_kind_t kind, uint8_t user, uint8_t finger, char *p_out, size_t size);
+static void     ui_flow_row_text(const system_view_t *const p_view, uint8_t index, char *p_out, size_t size);
+static void     ui_flow_msg_text(const system_message_t *p_msg, uint8_t index, char *p_out, size_t size);
+static uint32_t ui_flow_msg_sig(const system_view_t *const p_view);
+static void     ui_flow_set_status(const char *p_icon, const char *p_title, const char *p_detail, const char *p_hint);
+static void     ui_flow_menu_set(
+        const char *p_title, const char *p_r1, const char *p_r2, const char *p_r3, const char *p_r4);
 static void     ui_flow_wifi(TickType_t now);
 static bool     ui_flow_lock(void);
 static void     ui_flow_unlock(void);
@@ -80,6 +102,15 @@ static ui_flow_ctx_t s_flow = {0};
 static const char *const s_kind_menu_titles[SYSTEM_CRED_COUNT]   = {"PIN CODES", "FINGERPRINTS", "RFID CARDS"};
 static const char *const s_kind_delete_titles[SYSTEM_CRED_COUNT] = {"DELETE PIN", "DELETE FINGERPRINT", "DELETE CARD"};
 static const char *const s_kind_names[SYSTEM_CRED_COUNT]         = {"PIN", "fingerprint", "card"};
+static const char *const s_kind_add_titles[SYSTEM_CRED_COUNT]    = {"ADD PIN", "ADD FINGERPRINT", "ADD CARD"};
+
+/* Made here, not in SquareLine: the highlight and the scroll bar of an admin list, inside ui_MenuList. */
+static lv_obj_t *s_list_highlight = NULL;
+static lv_obj_t *s_list_track     = NULL;
+static lv_obj_t *s_list_thumb     = NULL;
+
+/* The microphone icon SquareLine put on the Voice screen; PLAYING shows a speaker instead. */
+static char s_voice_icon[UI_FLOW_ICON_SIZE] = "";
 
 /***********************************************************************************************************************
  * Public functions
@@ -113,13 +144,20 @@ void boot_ui_flow(void)
 static void ui_flow_task(void *pvParameter)
 {
     (void)pvParameter;
-    system_view_t view;
+    static system_view_t view; /* ~400 bytes: off the stack. */
 
-    if (ui_flow_lock())
+    /* Retried until it works: LVGL is often busy at boot, and the list widgets made here must exist before a list is
+     * drawn (a skipped setup left them NULL and the first list crashed the board). */
+    while (!ui_flow_lock())
+    {
+        vTaskDelay(pdMS_TO_TICKS(UI_FLOW_TICK_MS));
+    }
     {
         /* The fields show placeholders as long as the code, never the code: no last-key preview. */
         lv_textarea_set_password_show_time(ui_InputField, 0);
         lv_textarea_set_password_show_time(ui_AdminLoginPass, 0);
+        ui_flow_list_create();
+        (void)snprintf(s_voice_icon, sizeof(s_voice_icon), "%s", lv_label_get_text(ui_VoiceIcon));
         ui_flow_unlock();
     }
 
@@ -128,6 +166,7 @@ static void ui_flow_task(void *pvParameter)
         if (system_control_get_view(&view))
         {
             const bool changed = !s_flow.drawn || (view.state != s_flow.state) || (view.kind != s_flow.kind)
+                                 || ((SYSTEM_STATE_ADMIN_LIST == view.state) && (view.list_purpose != s_flow.purpose))
                                  || (view.step != s_flow.step);
             if (changed)
             {
@@ -152,14 +191,24 @@ static void ui_flow_task(void *pvParameter)
 static void ui_flow_enter(const system_view_t *const p_view)
 {
     ui_service_screen_t screen = UI_SERVICE_SCREEN_HOME;
-    const bool          admin  = (SYSTEM_STATE_ADMIN_MENU == p_view->state) || (SYSTEM_STATE_CRED_MENU == p_view->state)
-                       || (SYSTEM_STATE_ADMIN_INPUT == p_view->state) || (SYSTEM_STATE_ADMIN_SCAN == p_view->state);
+    const bool          admin
+        = (SYSTEM_STATE_ADMIN_MENU == p_view->state) || (SYSTEM_STATE_CRED_MENU == p_view->state)
+          || (SYSTEM_STATE_ADMIN_INPUT == p_view->state) || (SYSTEM_STATE_ADMIN_SCAN == p_view->state)
+          || (SYSTEM_STATE_ADMIN_LIST == p_view->state) || (SYSTEM_STATE_ADMIN_CONFIRM == p_view->state)
+          || (SYSTEM_STATE_MSG_MENU == p_view->state) || (SYSTEM_STATE_MSG_DELETE == p_view->state)
+          || (p_view->msg_admin
+              && ((SYSTEM_STATE_VOICE == p_view->state) || (SYSTEM_STATE_MSG_LIST == p_view->state)
+                  || (SYSTEM_STATE_PLAYING == p_view->state) || (SYSTEM_STATE_VOICE_REVIEW == p_view->state)));
 
     if (!ui_flow_lock())
     {
         return; /* Not drawn: the next tick tries again. */
     }
     lv_label_set_text(ui_TopBarText, admin ? UI_FLOW_TOPBAR_ADMIN : UI_FLOW_TOPBAR_USER);
+    ui_flow_list_show((SYSTEM_STATE_ADMIN_LIST == p_view->state) || (SYSTEM_STATE_MSG_LIST == p_view->state));
+    lv_label_set_text(ui_VoiceIcon, (SYSTEM_STATE_PLAYING == p_view->state) ? LV_SYMBOL_VOLUME_MAX : s_voice_icon);
+    lv_obj_clear_flag(ui_StatusTrack, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui_StatusFill, LV_OBJ_FLAG_HIDDEN);
 
     switch (p_view->state)
     {
@@ -170,9 +219,56 @@ static void ui_flow_enter(const system_view_t *const p_view)
             break;
 
         case SYSTEM_STATE_VOICE:
-            lv_label_set_text(ui_VoiceTitle, "RECORDING");
+            lv_label_set_text(ui_VoiceTitle, p_view->msg_admin ? "MESSAGE FOR GUESTS" : "RECORDING");
             lv_label_set_text(ui_VoiceHintText, "#: Stop        Hold *: Cancel");
+            lv_label_set_text_fmt(ui_VoiceTime, "00:00 / 00:%02u", (unsigned)(SYSTEM_VOICE_MAX_MS / 1000U));
+            lv_obj_set_width(ui_VoiceFill, 0);
             screen = UI_SERVICE_SCREEN_VOICE;
+            break;
+
+        case SYSTEM_STATE_PLAYING:
+            lv_label_set_text(ui_VoiceTitle, "PLAYING");
+            lv_label_set_text(ui_VoiceHintText, "# or *: Stop");
+            lv_label_set_text_fmt(ui_VoiceTime, "00:00 / 00:%02u", (unsigned)p_view->play_seconds);
+            lv_obj_set_width(ui_VoiceFill, 0);
+            screen = UI_SERVICE_SCREEN_VOICE;
+            break;
+
+        case SYSTEM_STATE_MSG_MENU:
+            ui_flow_menu_set("MESSAGES FOR GUESTS", "1    Record new", "2    Listen / delete", "0    Back", "");
+            lv_label_set_text_fmt(
+                ui_MenuCount, "Stored: %u / %u", (unsigned)p_view->message_count, (unsigned)SYSTEM_MSG_SLOTS);
+            screen = UI_SERVICE_SCREEN_MENU;
+            break;
+
+        case SYSTEM_STATE_MSG_LIST:
+            lv_label_set_text(ui_MenuTitle, p_view->msg_admin ? "MESSAGES FOR GUESTS" : "MESSAGES FROM THE OWNER");
+            lv_label_set_text(ui_MenuHint,
+                              p_view->msg_admin ? "2/8  #: Play  0: Delete  *: Back" : "2/8: Move   #: Play   *: Back");
+            screen = UI_SERVICE_SCREEN_MENU;
+            break;
+
+        case SYSTEM_STATE_MSG_DELETE:
+        {
+            char line[UI_FLOW_DETAIL_SIZE];
+            ui_flow_msg_text(&p_view->messages[p_view->list_sel], p_view->list_sel, line, sizeof(line));
+            ui_flow_set_status(LV_SYMBOL_TRASH, "DELETE MESSAGE?", line, "#: Delete          *: Cancel");
+            lv_obj_add_flag(ui_StatusTrack, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_StatusFill, LV_OBJ_FLAG_HIDDEN);
+            screen = UI_SERVICE_SCREEN_STATUS;
+            break;
+        }
+
+        case SYSTEM_STATE_VOICE_REVIEW:
+            /* Detail and length: ui_flow_refresh(), once the voice code has the length. */
+            ui_flow_set_status(LV_SYMBOL_AUDIO,
+                               p_view->msg_admin ? "MESSAGE FOR GUESTS" : "MESSAGE RECORDED",
+                               "Saving...",
+                               p_view->msg_admin ? "#: Save          Hold *: Delete"
+                                                 : "#: Send          Hold *: Delete");
+            lv_obj_add_flag(ui_StatusTrack, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_StatusFill, LV_OBJ_FLAG_HIDDEN);
+            screen = UI_SERVICE_SCREEN_STATUS;
             break;
 
         case SYSTEM_STATE_ADMIN_LOGIN:
@@ -180,17 +276,61 @@ static void ui_flow_enter(const system_view_t *const p_view)
             break;
 
         case SYSTEM_STATE_ADMIN_MENU:
-            ui_flow_menu_set("ADMIN MENU", "1    PIN codes", "2    Fingerprints", "3    RFID cards", "0    Exit admin");
+            ui_flow_menu_set(
+                "ADMIN MENU", "1    PIN codes", "2    Fingerprints", "3    RFID cards", "4    Guest messages");
             lv_label_set_text(ui_MenuCount, "Admin mode");
+            lv_label_set_text(ui_MenuHint, "Press a number    0: Exit admin");
             screen = UI_SERVICE_SCREEN_MENU;
             break;
 
         case SYSTEM_STATE_CRED_MENU:
             ui_flow_menu_set(s_kind_menu_titles[p_view->kind], "1    Add", "2    Delete", "0    Back", "");
-            lv_label_set_text_fmt(
-                ui_MenuCount, "Stored: %u / %u", (unsigned)p_view->stored_count, (unsigned)SYSTEM_USER_COUNT);
+            lv_label_set_text_fmt(ui_MenuCount,
+                                  "Stored: %u / %u",
+                                  (unsigned)p_view->stored_count,
+                                  (unsigned)((SYSTEM_CRED_PIN == p_view->kind)    ? SYSTEM_USER_COUNT
+                                             : (SYSTEM_CRED_CARD == p_view->kind) ? SYSTEM_CARD_SLOTS
+                                                                                  : SYSTEM_FINGER_SLOTS));
             screen = UI_SERVICE_SCREEN_MENU;
             break;
+
+        case SYSTEM_STATE_ADMIN_LIST:
+        {
+            char line[UI_FLOW_DETAIL_SIZE];
+            if (SYSTEM_LIST_DELETE == p_view->list_purpose)
+            {
+                lv_label_set_text(ui_MenuTitle, s_kind_delete_titles[p_view->kind]);
+                (void)snprintf(line, sizeof(line), "Pick what to delete");
+            }
+            else if (SYSTEM_LIST_PICK_FINGER == p_view->list_purpose)
+            {
+                lv_label_set_text(ui_MenuTitle, s_kind_add_titles[p_view->kind]);
+                (void)snprintf(
+                    line, sizeof(line), "Which finger of %s?", system_control_user_name(p_view->pending_user));
+            }
+            else
+            {
+                lv_label_set_text(ui_MenuTitle, s_kind_add_titles[p_view->kind]);
+                (void)snprintf(line, sizeof(line), "For which user?");
+            }
+            lv_label_set_text(ui_MenuCount, line);
+            lv_label_set_text(ui_MenuHint, "2/8: Move   #: Select   *: Back");
+            screen = UI_SERVICE_SCREEN_MENU;
+            break;
+        }
+
+        case SYSTEM_STATE_ADMIN_CONFIRM:
+        {
+            char owner[UI_FLOW_DETAIL_SIZE];
+            char title[UI_FLOW_DETAIL_SIZE];
+            ui_flow_item_text(p_view, &p_view->list[p_view->list_sel], owner, sizeof(owner));
+            (void)snprintf(title, sizeof(title), "%s?", s_kind_delete_titles[p_view->kind]);
+            ui_flow_set_status(LV_SYMBOL_TRASH, title, owner, "#: Delete          *: Cancel");
+            lv_obj_add_flag(ui_StatusTrack, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(ui_StatusFill, LV_OBJ_FLAG_HIDDEN);
+            screen = UI_SERVICE_SCREEN_STATUS;
+            break;
+        }
 
         case SYSTEM_STATE_ADMIN_SCAN:
         {
@@ -232,9 +372,14 @@ static void ui_flow_enter(const system_view_t *const p_view)
     s_flow.login_on_password = false; /* ui_service_show() gave the keys to the ID. */
     s_flow.shown_seconds     = -1;
     s_flow.shown_scans       = -1;
+    s_flow.shown_sel         = -1;
+    s_flow.shown_count       = -1;
+    s_flow.list_top          = 0U;
+    s_flow.purpose           = p_view->list_purpose;
     s_flow.shown_entry       = -1;
     s_flow.shown_unlocked    = -1;
     s_flow.shown_messages    = -1;
+    s_flow.shown_msg_sig     = 0U;
 }
 
 /* What changes inside a state: typed characters, the login field with the keys, UNLOCKED, messages, countdowns. */
@@ -251,12 +396,14 @@ static void ui_flow_refresh(const system_view_t *const p_view)
                 lv_label_set_text(ui_HomeState, (0 != unlocked) ? "UNLOCKED" : "LOCKED");
                 if (0 == messages)
                 {
-                    lv_label_set_text(ui_HomeMessages, "No new messages");
+                    lv_label_set_text(ui_HomeMessages, "No messages");
                 }
                 else
                 {
-                    lv_label_set_text_fmt(
-                        ui_HomeMessages, "%u new message%s", (unsigned)messages, (1 == messages) ? "" : "s");
+                    lv_label_set_text_fmt(ui_HomeMessages,
+                                          "%u message%s - hold # to listen",
+                                          (unsigned)messages,
+                                          (1 == messages) ? "" : "s");
                 }
                 ui_flow_unlock();
                 s_flow.shown_unlocked = unlocked;
@@ -270,9 +417,7 @@ static void ui_flow_refresh(const system_view_t *const p_view)
             break;
 
         case SYSTEM_STATE_ADMIN_INPUT:
-            ui_flow_refresh_field(ui_InputField,
-                                  p_view,
-                                  (SYSTEM_STEP_ADD_PIN == p_view->step) || (SYSTEM_STEP_ADD_CONFIRM == p_view->step));
+            ui_flow_refresh_field(ui_InputField, p_view, true); /* A new PIN, typed twice. */
             break;
 
         case SYSTEM_STATE_ADMIN_LOGIN:
@@ -292,6 +437,63 @@ static void ui_flow_refresh(const system_view_t *const p_view)
             ui_flow_refresh_field(
                 p_view->login_on_password ? ui_AdminLoginPass : ui_AdminLoginId, p_view, p_view->login_on_password);
             break;
+
+        case SYSTEM_STATE_ADMIN_LIST:
+            if ((p_view->list_sel != s_flow.shown_sel) || (p_view->list_count != s_flow.shown_count))
+            {
+                ui_flow_list_draw(p_view);
+            }
+            break;
+
+        case SYSTEM_STATE_VOICE_REVIEW:
+            if (((int32_t)p_view->review_seconds != s_flow.shown_seconds) && (0U != p_view->review_seconds)
+                && ui_flow_lock())
+            {
+                lv_label_set_text(ui_StatusDetail, "1: Listen        2: Record again");
+                lv_label_set_text_fmt(ui_StatusValue, "Length: %u s", (unsigned)p_view->review_seconds);
+                ui_flow_unlock();
+                s_flow.shown_seconds = (int32_t)p_view->review_seconds;
+            }
+            break;
+
+        case SYSTEM_STATE_MSG_DELETE:
+        {
+            /* A message from the web moved the rows: show the one that will be deleted. */
+            const uint32_t sig = ui_flow_msg_sig(p_view);
+            if ((sig != s_flow.shown_msg_sig) && ui_flow_lock())
+            {
+                char line[UI_FLOW_DETAIL_SIZE];
+                ui_flow_msg_text(&p_view->messages[p_view->list_sel], p_view->list_sel, line, sizeof(line));
+                lv_label_set_text(ui_StatusDetail, line);
+                ui_flow_unlock();
+                s_flow.shown_msg_sig = sig;
+            }
+            break;
+        }
+
+        case SYSTEM_STATE_MSG_MENU:
+            /* A recording just kept, or a message from the web. */
+            if ((p_view->message_count != s_flow.shown_messages) && ui_flow_lock())
+            {
+                lv_label_set_text_fmt(
+                    ui_MenuCount, "Stored: %u / %u", (unsigned)p_view->message_count, (unsigned)SYSTEM_MSG_SLOTS);
+                ui_flow_unlock();
+                s_flow.shown_messages = p_view->message_count;
+            }
+            break;
+
+        case SYSTEM_STATE_MSG_LIST:
+        {
+            /* Also when a message from the web replaced one: same count, other rows. */
+            const uint32_t sig = ui_flow_msg_sig(p_view);
+            if ((p_view->list_sel != s_flow.shown_sel) || (p_view->list_count != s_flow.shown_count)
+                || (sig != s_flow.shown_msg_sig))
+            {
+                ui_flow_list_draw(p_view);
+                s_flow.shown_msg_sig = sig;
+            }
+            break;
+        }
 
         default:
             ui_flow_refresh_countdown(p_view);
@@ -329,6 +531,9 @@ static void ui_flow_refresh_countdown(const system_view_t *const p_view)
         case SYSTEM_STATE_VOICE:
             total_ms = SYSTEM_VOICE_MAX_MS;
             break;
+        case SYSTEM_STATE_PLAYING:
+            total_ms = ((uint32_t)p_view->play_seconds * 1000U) + 1U; /* + 1: never 0. */
+            break;
         case SYSTEM_STATE_ADMIN_SCAN:
             total_ms = SYSTEM_SCAN_TIMEOUT_MS;
             break;
@@ -346,7 +551,7 @@ static void ui_flow_refresh_countdown(const system_view_t *const p_view)
 
     const uint32_t elapsed_ms = (p_view->state_ms < total_ms) ? p_view->state_ms : total_ms;
     const uint32_t remain_ms  = total_ms - elapsed_ms;
-    const bool     voice      = (SYSTEM_STATE_VOICE == p_view->state);
+    const bool     voice      = (SYSTEM_STATE_VOICE == p_view->state) || (SYSTEM_STATE_PLAYING == p_view->state);
     const int32_t  seconds    = (int32_t)(voice ? (elapsed_ms / 1000U) : ((remain_ms + 999U) / 1000U));
 
     const bool scans_changed = (SYSTEM_STATE_ADMIN_SCAN == p_view->state) && (p_view->scan_count != s_flow.shown_scans);
@@ -357,8 +562,12 @@ static void ui_flow_refresh_countdown(const system_view_t *const p_view)
     switch (p_view->state)
     {
         case SYSTEM_STATE_VOICE:
-            lv_label_set_text_fmt(
-                ui_VoiceTime, "00:%02u / 00:%02u", (unsigned)seconds, (unsigned)(SYSTEM_VOICE_MAX_MS / 1000U));
+        case SYSTEM_STATE_PLAYING:
+            lv_label_set_text_fmt(ui_VoiceTime,
+                                  "00:%02u / 00:%02u",
+                                  (unsigned)seconds,
+                                  (unsigned)((SYSTEM_STATE_VOICE == p_view->state) ? (SYSTEM_VOICE_MAX_MS / 1000U)
+                                                                                   : p_view->play_seconds));
             lv_obj_set_width(ui_VoiceFill, (lv_coord_t)(((uint64_t)UI_FLOW_BAR_WIDTH * elapsed_ms) / total_ms));
             break;
         case SYSTEM_STATE_ADMIN_SCAN:
@@ -374,9 +583,11 @@ static void ui_flow_refresh_countdown(const system_view_t *const p_view)
                 lv_label_set_text(ui_StatusDetail,
                                   finger ? "Lift, then place the same finger" : "Lift, then tap the same card");
             }
+            char owner[UI_FLOW_DETAIL_SIZE];
+            ui_flow_owner_text(p_view->kind, p_view->pending_user, p_view->pending_finger, owner, sizeof(owner));
             lv_label_set_text_fmt(ui_StatusValue,
-                                  "User %u    Scan %u / %u",
-                                  (unsigned)p_view->scan_user,
+                                  "%s    Scan %u / %u",
+                                  owner,
                                   (unsigned)(p_view->scan_count + 1U),
                                   (unsigned)SYSTEM_SCAN_COUNT);
             lv_label_set_text_fmt(ui_StatusHintText, "Hold * to cancel    %u s", (unsigned)seconds);
@@ -430,34 +641,57 @@ static void ui_flow_notice(const system_view_t *const p_view)
         case SYSTEM_NOTICE_ADMIN_TIMEOUT:
             ui_flow_popup(UI_SERVICE_POPUP_INFO, "Admin mode ended", "No key pressed");
             break;
-        case SYSTEM_NOTICE_VOICE_STOPPED:
-            /* TODO(audio_service): SUCCESS "Message saved" / ERROR "Record failed" once recording is real. */
-            ui_flow_popup(UI_SERVICE_POPUP_INFO, "Recording stopped", NULL);
-            break;
         case SYSTEM_NOTICE_VOICE_CANCELLED:
             ui_flow_popup(UI_SERVICE_POPUP_INFO, "Recording cancelled", NULL);
             break;
         case SYSTEM_NOTICE_NO_MESSAGES:
-            ui_flow_popup(UI_SERVICE_POPUP_INFO, "No new messages", NULL);
+            ui_flow_popup(UI_SERVICE_POPUP_INFO, "No messages", "The owner left no message");
             break;
-        case SYSTEM_NOTICE_PLAYING:
-            ui_flow_popup(UI_SERVICE_POPUP_INFO, "Playing message", NULL);
+        case SYSTEM_NOTICE_MSG_SENT:
+            ui_flow_popup(UI_SERVICE_POPUP_SUCCESS, "Message sent", "The owner will hear it");
             break;
-        case SYSTEM_NOTICE_INVALID_ID:
-            (void)snprintf(detail, sizeof(detail), "Use 1 - %u", (unsigned)SYSTEM_USER_COUNT);
-            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Invalid user ID", detail);
+        case SYSTEM_NOTICE_MSG_SAVED:
+            ui_flow_popup(UI_SERVICE_POPUP_SUCCESS, "Message saved", "Guests can play it");
             break;
-        case SYSTEM_NOTICE_ID_IN_USE:
-            (void)snprintf(detail, sizeof(detail), "User %u already has one", value);
-            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "ID in use", detail);
+        case SYSTEM_NOTICE_MSG_TOO_SHORT:
+            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Too short", "Speak for at least 1 s");
             break;
-        case SYSTEM_NOTICE_NOT_FOUND:
-            (void)snprintf(detail, sizeof(detail), "User %u", value);
-            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Not found", detail);
+        case SYSTEM_NOTICE_MSG_FAILED:
+            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Record failed", "Microphone or SD card error");
+            break;
+        case SYSTEM_NOTICE_MSG_UNAVAILABLE:
+            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Not available", "No SD card for messages");
+            break;
+        case SYSTEM_NOTICE_MSG_FULL:
+            (void)snprintf(detail, sizeof(detail), "%u messages, delete one first", (unsigned)SYSTEM_MSG_SLOTS);
+            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Failed", detail);
+            break;
+        case SYSTEM_NOTICE_MSG_DELETED:
+            ui_flow_popup(UI_SERVICE_POPUP_SUCCESS, "Deleted", "Message removed");
+            break;
+        case SYSTEM_NOTICE_PLAY_FAILED:
+            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Cannot play", "Message unreadable");
             break;
         case SYSTEM_NOTICE_DELETED:
-            (void)snprintf(detail, sizeof(detail), "User %u", value);
+            ui_flow_owner_text(p_view->kind, value, p_view->notice_value2, detail, sizeof(detail));
             ui_flow_popup(UI_SERVICE_POPUP_SUCCESS, "Deleted", detail);
+            break;
+        case SYSTEM_NOTICE_EMPTY:
+            if (SYSTEM_STATE_MSG_MENU == p_view->state)
+            {
+                ui_flow_popup(UI_SERVICE_POPUP_INFO, "Nothing to play", "No messages for guests");
+                break;
+            }
+            (void)snprintf(detail, sizeof(detail), "No %s stored", s_kind_names[p_view->kind]);
+            ui_flow_popup(UI_SERVICE_POPUP_INFO, "Nothing to delete", detail);
+            break;
+        case SYSTEM_NOTICE_FINGER_IN_USE:
+            ui_flow_owner_text(SYSTEM_CRED_FINGER, value, p_view->notice_value2, detail, sizeof(detail));
+            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Already added", detail);
+            break;
+        case SYSTEM_NOTICE_ALL_FINGERS:
+            (void)snprintf(detail, sizeof(detail), "%s has all 10 fingers", system_control_user_name(value));
+            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Nothing to add", detail);
             break;
         case SYSTEM_NOTICE_PIN_TOO_SHORT:
             (void)snprintf(detail, sizeof(detail), "%u - %u digits", SYSTEM_PIN_MIN_LEN, SYSTEM_ENTRY_MAX);
@@ -470,15 +704,18 @@ static void ui_flow_notice(const system_view_t *const p_view)
             ui_flow_popup(UI_SERVICE_POPUP_ERROR, "PINs do not match", "Enter the new PIN again");
             break;
         case SYSTEM_NOTICE_SAVED:
-            (void)snprintf(detail, sizeof(detail), "User %u added", value);
+            ui_flow_owner_text(p_view->kind, value, p_view->notice_value2, detail, sizeof(detail));
             ui_flow_popup(UI_SERVICE_POPUP_SUCCESS, "Saved", detail);
             break;
         case SYSTEM_NOTICE_FULL:
-            (void)snprintf(detail, sizeof(detail), "All %u user IDs used", (unsigned)SYSTEM_USER_COUNT);
+            (void)snprintf(detail,
+                           sizeof(detail),
+                           (SYSTEM_CRED_PIN == p_view->kind) ? "Every user has a PIN" : "No free %s slot",
+                           s_kind_names[p_view->kind]);
             ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Failed", detail);
             break;
         case SYSTEM_NOTICE_CARD_IN_USE:
-            (void)snprintf(detail, sizeof(detail), "Card of user %u", value);
+            (void)snprintf(detail, sizeof(detail), "Card of %s", system_control_user_name(value));
             ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Already added", detail);
             break;
         case SYSTEM_NOTICE_SCAN_MISMATCH:
@@ -506,15 +743,11 @@ static void ui_flow_notice(const system_view_t *const p_view)
     }
 }
 
-/* Called under the lock. Input serves ENTER PIN and the admin steps. */
+/* Called under the lock. Input serves ENTER PIN and the new PIN of the admin menu. */
 static void ui_flow_set_input(const system_view_t *const p_view)
 {
-    const bool pin_entry = (SYSTEM_STATE_PIN_ENTRY == p_view->state);
-    const bool id_step
-        = !pin_entry && ((SYSTEM_STEP_ADD_ID == p_view->step) || (SYSTEM_STEP_DELETE_ID == p_view->step));
-
     lv_label_set_text(ui_InputKeys, "#  OK          *  Delete");
-    if (pin_entry)
+    if (SYSTEM_STATE_PIN_ENTRY == p_view->state)
     {
         lv_label_set_text(ui_InputTitle, "ENTER PIN");
         lv_label_set_text(ui_InputPrompt, "Enter PIN or scan card / fingerprint");
@@ -522,24 +755,222 @@ static void ui_flow_set_input(const system_view_t *const p_view)
     }
     else
     {
-        lv_label_set_text(ui_InputTitle,
-                          (SYSTEM_STEP_DELETE_ID == p_view->step) ? s_kind_delete_titles[p_view->kind] : "ADD PIN");
-        if (id_step)
-        {
-            lv_label_set_text_fmt(ui_InputPrompt, "Enter user ID (1-%u)", (unsigned)SYSTEM_USER_COUNT);
-        }
-        else
-        {
-            lv_label_set_text(ui_InputPrompt,
-                              (SYSTEM_STEP_ADD_PIN == p_view->step) ? "Enter new PIN (4-8 digits)" : "Enter PIN again");
-        }
+        lv_label_set_text_fmt(ui_InputTitle, "ADD PIN - %s", system_control_user_name(p_view->pending_user));
+        lv_label_set_text(ui_InputPrompt,
+                          (SYSTEM_STEP_ADD_PIN == p_view->step) ? "Enter new PIN (4-8 digits)" : "Enter PIN again");
         lv_label_set_text(ui_InputHintText, "Hold * to go back");
     }
-    lv_textarea_set_placeholder_text(ui_InputField, id_step ? "User ID" : "PIN");
-    lv_textarea_set_password_mode(ui_InputField, !id_step);
+    lv_textarea_set_placeholder_text(ui_InputField, "PIN");
+    lv_textarea_set_password_mode(ui_InputField, true);
     /* Home -> Input keeps the field (ui_service_show()): empty it here, or the last entry would flash until
      * ui_flow_refresh() draws this one. */
     lv_textarea_set_text(ui_InputField, "");
+}
+
+/* Called under the lock, once: a highlight behind the selected row and a scroll bar on the right of ui_MenuList. */
+static void ui_flow_list_create(void)
+{
+    lv_obj_clear_flag(ui_MenuList, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_list_highlight = lv_obj_create(ui_MenuList);
+    lv_obj_remove_style_all(s_list_highlight);
+    lv_obj_set_size(s_list_highlight, 250, 24);
+    lv_obj_set_align(s_list_highlight, LV_ALIGN_LEFT_MID);
+    lv_obj_set_x(s_list_highlight, 6);
+    lv_obj_set_style_radius(s_list_highlight, 4, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_list_highlight, lv_color_hex(0x2F6FA8), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_list_highlight, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_move_background(s_list_highlight); /* Behind the row labels. */
+
+    s_list_track = lv_obj_create(ui_MenuList);
+    lv_obj_remove_style_all(s_list_track);
+    lv_obj_set_size(s_list_track, 4, UI_FLOW_SCROLL_H);
+    lv_obj_set_align(s_list_track, LV_ALIGN_RIGHT_MID);
+    lv_obj_set_x(s_list_track, -4);
+    lv_obj_set_style_radius(s_list_track, 2, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_list_track, lv_color_hex(0x3A4652), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_list_track, LV_OPA_COVER, LV_PART_MAIN);
+
+    s_list_thumb = lv_obj_create(s_list_track);
+    lv_obj_remove_style_all(s_list_thumb);
+    lv_obj_set_width(s_list_thumb, 4);
+    lv_obj_set_style_radius(s_list_thumb, 2, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_list_thumb, lv_color_hex(0xC8D2DC), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_list_thumb, LV_OPA_COVER, LV_PART_MAIN);
+
+    ui_flow_list_show(false);
+}
+
+/* Called under the lock. */
+static void ui_flow_list_show(bool show)
+{
+    if (NULL == s_list_highlight)
+    {
+        return;
+    }
+    if (show)
+    {
+        lv_obj_clear_flag(s_list_highlight, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_obj_add_flag(s_list_highlight, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_list_track, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+/* A window of UI_FLOW_LIST_ROWS rows that follows the highlight, and a scroll bar when the list is longer. */
+static void ui_flow_list_draw(const system_view_t *const p_view)
+{
+    lv_obj_t *const rows[UI_FLOW_LIST_ROWS] = {ui_MenuRow1, ui_MenuRow2, ui_MenuRow3, ui_MenuRow4};
+    const uint8_t   count                   = p_view->list_count;
+    const uint8_t   sel                     = p_view->list_sel;
+    char            text[UI_FLOW_DETAIL_SIZE];
+
+    if (sel < s_flow.list_top)
+    {
+        s_flow.list_top = sel;
+    }
+    else if (sel >= (s_flow.list_top + UI_FLOW_LIST_ROWS))
+    {
+        s_flow.list_top = (uint8_t)(sel - UI_FLOW_LIST_ROWS + 1U);
+    }
+    if ((s_flow.list_top + UI_FLOW_LIST_ROWS) > count)
+    {
+        s_flow.list_top = (count > UI_FLOW_LIST_ROWS) ? (uint8_t)(count - UI_FLOW_LIST_ROWS) : 0U;
+    }
+
+    if ((NULL == s_list_highlight) || !ui_flow_lock())
+    {
+        return;
+    }
+    for (uint8_t i = 0U; i < UI_FLOW_LIST_ROWS; i++)
+    {
+        const uint8_t index = (uint8_t)(s_flow.list_top + i);
+        text[0]             = '\0';
+        if (index < count)
+        {
+            ui_flow_row_text(p_view, index, text, sizeof(text));
+        }
+        lv_label_set_text(rows[i], text);
+    }
+    lv_obj_set_y(s_list_highlight, UI_FLOW_ROW_TOP + (UI_FLOW_ROW_STEP * (int32_t)(sel - s_flow.list_top)));
+
+    if (count > UI_FLOW_LIST_ROWS)
+    {
+        /* Thumb: the share of the list in view, at the place of the window. */
+        const lv_coord_t thumb_h = (lv_coord_t)((UI_FLOW_SCROLL_H * UI_FLOW_LIST_ROWS) / count);
+        const lv_coord_t thumb_y
+            = (lv_coord_t)(((UI_FLOW_SCROLL_H - thumb_h) * s_flow.list_top) / (count - UI_FLOW_LIST_ROWS));
+        lv_obj_set_height(s_list_thumb, thumb_h);
+        lv_obj_set_y(s_list_thumb, thumb_y);
+        lv_obj_clear_flag(s_list_track, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_obj_add_flag(s_list_track, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_label_set_text_fmt(ui_MenuCount, "%u / %u", (unsigned)(sel + 1U), (unsigned)count);
+    ui_flow_unlock();
+    s_flow.shown_sel   = sel;
+    s_flow.shown_count = count;
+}
+
+/* Text of one list row, also the detail of the confirm screen. */
+static void ui_flow_item_text(const system_view_t *const p_view,
+                              const system_list_item_t  *p_item,
+                              char                      *p_out,
+                              size_t                     size)
+{
+    if (SYSTEM_LIST_PICK_FINGER == p_view->list_purpose)
+    {
+        (void)snprintf(p_out, size, "%s", system_control_finger_name(p_item->finger));
+    }
+    else if (SYSTEM_LIST_PICK_USER == p_view->list_purpose)
+    {
+        if ((SYSTEM_CRED_PIN == p_view->kind) || (0U == p_item->count))
+        {
+            (void)snprintf(p_out, size, "%s", system_control_user_name(p_item->user));
+        }
+        else
+        {
+            (void)snprintf(p_out,
+                           size,
+                           "%s   (%u %s%s)",
+                           system_control_user_name(p_item->user),
+                           p_item->count,
+                           s_kind_names[p_view->kind],
+                           (1U == p_item->count) ? "" : "s");
+        }
+    }
+    else if (SYSTEM_CRED_CARD == p_view->kind)
+    {
+        (void)snprintf(p_out, size, "%s - card ..%04X", system_control_user_name(p_item->user), p_item->uid_tail);
+    }
+    else
+    {
+        ui_flow_owner_text(p_view->kind, p_item->user, p_item->finger, p_out, size);
+    }
+}
+
+/* Row of ADMIN_LIST or MSG_LIST. */
+static void ui_flow_row_text(const system_view_t *const p_view, uint8_t index, char *p_out, size_t size)
+{
+    if (SYSTEM_STATE_MSG_LIST == p_view->state)
+    {
+        ui_flow_msg_text(&p_view->messages[index], index, p_out, size);
+    }
+    else
+    {
+        ui_flow_item_text(p_view, &p_view->list[index], p_out, size);
+    }
+}
+
+/* "1. Web   12 s   14:05 02/11": where it came from, its length, when (when the clock was set). */
+static void ui_flow_msg_text(const system_message_t *p_msg, uint8_t index, char *p_out, size_t size)
+{
+    char when[16] = "";
+
+    if (0U != p_msg->ts)
+    {
+        const time_t ts = (time_t)p_msg->ts;
+        struct tm    tm_local;
+        if (NULL != localtime_r(&ts, &tm_local))
+        {
+            (void)strftime(when, sizeof(when), "%H:%M %d/%m", &tm_local);
+        }
+    }
+    (void)snprintf(p_out,
+                   size,
+                   "%u. %s   %u s   %s",
+                   (unsigned)(index + 1U),
+                   (SYSTEM_MSG_FROM_WEB == p_msg->source) ? "Web" : "Door",
+                   (unsigned)p_msg->seconds,
+                   when);
+}
+
+/* Changes when a message of the list changes. */
+static uint32_t ui_flow_msg_sig(const system_view_t *const p_view)
+{
+    uint32_t sig = 2166136261U;
+
+    for (uint8_t i = 0U; i < p_view->message_count; i++)
+    {
+        sig = (sig ^ p_view->messages[i].slot) * 16777619U;
+        sig = (sig ^ p_view->messages[i].ts) * 16777619U;
+        sig = (sig ^ p_view->messages[i].seconds) * 16777619U;
+    }
+    return sig;
+}
+
+/* "Dat - Left index", "Dat - card", "Dat - PIN". */
+static void ui_flow_owner_text(system_cred_kind_t kind, uint8_t user, uint8_t finger, char *p_out, size_t size)
+{
+    (void)snprintf(p_out,
+                   size,
+                   "%s - %s",
+                   system_control_user_name(user),
+                   (SYSTEM_CRED_FINGER == kind) ? system_control_finger_name(finger) : s_kind_names[kind]);
 }
 
 /* Called under the lock. */

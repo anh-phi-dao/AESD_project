@@ -1,6 +1,6 @@
 import config from '../config.js';
 import { LockClient } from './lock-client.js';
-import { VoiceRecorder } from './voice.js';
+import { VoiceRecorder, VoiceStore } from './voice.js';
 
 const STORE_KEY = 'smartlock.login';
 // Last alert the user acknowledged, per lock: { deviceId, gen, id }. Only ids are stored, never alert content.
@@ -103,6 +103,7 @@ form.addEventListener('submit', async (e) => {
   try {
     resetSession();
     deviceId = opts.deviceId;
+    await openVoiceStore(deviceId); // before connecting: the retained voice/index arrives right away
     client = new LockClient(opts);
     wireClient(client);
     await client.connect();
@@ -133,6 +134,7 @@ function resetSession() {
   historyEpoch++;
   missedChecked = false;
   clearAlarm();
+  resetVoices();
 }
 
 function showDashboard(on) {
@@ -162,6 +164,11 @@ function wireClient(c) {
   c.addEventListener('connection', (e) => {
     const s = e.detail.state;
     setPill($('conn-status'), s === 'connected' ? 'online' : 'offline', CONN_LABEL[s] ?? s);
+    if (s === 'connected') {
+      voiceFailed.clear(); // the lock may be back: try the missing messages again
+      fetchNextVoice();
+    }
+    renderVoices(); // "Chờ kết nối…" / "Chờ tải…"
   });
   c.addEventListener('status', (e) => {
     const online = e.detail.online;
@@ -191,7 +198,8 @@ function wireClient(c) {
     }
   });
   c.addEventListener('recent', (e) => onRecent(e.detail));
-  c.addEventListener('voice', (e) => addVoice(e.detail));
+  c.addEventListener('voice', (e) => onVoice(e.detail));
+  c.addEventListener('voiceindex', (e) => onVoiceIndex(e.detail.items));
   c.addEventListener('error', (e) => console.warn('MQTT', e.detail.error));
 }
 
@@ -381,18 +389,210 @@ $('history-more').addEventListener('click', () => loadHistory(false));
 
 // ---------- voice ----------
 
-function addVoice({ blob, durationMs, receivedAt }) {
-  const url = URL.createObjectURL(blob);
-  const seconds = (durationMs / 1000).toFixed(1);
-  prepend(
-    $('voices'),
-    el('li', {},
+// Guests' messages. The lock keeps the last 10 on its SD card and lists them in the retained voice/index; the page
+// fetches each one it does not have yet (voice/req "get") and keeps it in the browser, so messages left while the
+// page was closed still arrive, and stay after the lock replaces them. Deleting here also deletes on the lock.
+// Guests at the door never hear these: the lock only plays the owner's messages.
+
+const VOICE_FETCH_TIMEOUT_MS = 30000;
+const VOICE_KEEP_MAX = 50;
+let voiceStore = null;
+let voiceRecords = new Map(); // id -> record or tombstone (VoiceStore)
+let voiceIndex = [];          // latest voice/index items: { id, ts, ms }
+let voiceFetching = null;     // { id, timer }
+const voiceFailed = new Set(); // ids that did not arrive: asked again after a reconnect or on "Thử lại"
+const voiceNodes = new Map();  // id -> { li, state, url }, so a re-render never stops a message being played
+
+async function openVoiceStore(id) {
+  voiceStore = new VoiceStore(id);
+  await voiceStore.open();
+  try {
+    voiceRecords = new Map((await voiceStore.all()).map((r) => [r.id, r]));
+  } catch {
+    voiceRecords = new Map();
+  }
+  renderVoices();
+}
+
+function resetVoices() {
+  clearTimeout(voiceFetching?.timer);
+  voiceFetching = null;
+  voiceIndex = [];
+  voiceRecords = new Map();
+  voiceFailed.clear();
+  for (const n of voiceNodes.values()) if (n.url) URL.revokeObjectURL(n.url);
+  voiceNodes.clear();
+}
+
+function onVoiceIndex(items) {
+  voiceIndex = items;
+  for (const rec of [...voiceRecords.values()]) {
+    if (!rec.deleted) continue;
+    if (items.some((it) => it.id === rec.id)) {
+      client?.deleteVoice(rec.id).catch(() => {}); // deleted here while the lock was offline
+    } else {
+      voiceRecords.delete(rec.id); // gone from the lock too: the tombstone is done
+      voiceStore?.remove(rec.id).catch(() => {});
+    }
+  }
+  renderVoices();
+  fetchNextVoice();
+}
+
+// One message at a time: each is up to 160 chunks.
+function fetchNextVoice() {
+  if (voiceFetching || !client?.connected) return;
+  const next = voiceIndex.find((it) => !voiceRecords.has(it.id) && !voiceFailed.has(it.id));
+  if (!next) return;
+  const timer = setTimeout(() => {
+    voiceFailed.add(next.id);
+    voiceFetching = null;
+    renderVoices();
+    fetchNextVoice();
+  }, VOICE_FETCH_TIMEOUT_MS);
+  voiceFetching = { id: next.id, timer };
+  client.requestVoice(next.id).catch(() => {
+    clearTimeout(timer);
+    voiceFailed.add(next.id);
+    voiceFetching = null;
+    renderVoices();
+  });
+  renderVoices();
+}
+
+async function onVoice({ msgId, blob, durationMs, receivedAt }) {
+  const old = voiceRecords.get(msgId);
+  if (old?.deleted) return;
+  const meta = voiceIndex.find((it) => it.id === msgId);
+  const rec = {
+    id: msgId,
+    ts: meta?.ts || old?.ts || Math.floor(receivedAt / 1000),
+    durationMs,
+    receivedAt,
+    heard: old?.heard ?? false,
+    blob,
+  };
+  voiceRecords.set(msgId, rec);
+  voiceStore?.put(rec).catch((err) => console.warn('Voice store', err));
+  if (voiceFetching?.id === msgId) {
+    clearTimeout(voiceFetching.timer);
+    voiceFetching = null;
+  }
+  // Not in the index yet: sent live, right after the guest recorded it.
+  if (!old && !meta) notify('Tin nhắn thoại mới', 'Khách vừa để lại lời nhắn tại cửa');
+  pruneVoices();
+  renderVoices();
+  fetchNextVoice();
+}
+
+function pruneVoices() {
+  const kept = [...voiceRecords.values()].filter((r) => !r.deleted).sort((a, b) => b.ts - a.ts);
+  for (const r of kept.slice(VOICE_KEEP_MAX)) {
+    voiceRecords.delete(r.id);
+    voiceStore?.remove(r.id).catch(() => {});
+  }
+}
+
+async function deleteVoice(id) {
+  if (!confirm('Xóa tin nhắn thoại này? Tin trên khóa cũng bị xóa.')) return;
+  if (voiceIndex.some((it) => it.id === id)) {
+    // Still on the lock: remember the deletion until the lock confirms it, so it is not fetched again.
+    const tomb = { id, deleted: true };
+    voiceRecords.set(id, tomb);
+    voiceStore?.put(tomb).catch(() => {});
+    client?.deleteVoice(id).catch(() => {});
+  } else {
+    voiceRecords.delete(id);
+    voiceStore?.remove(id).catch(() => {});
+  }
+  renderVoices();
+}
+
+function markHeard(id) {
+  const rec = voiceRecords.get(id);
+  if (!rec || rec.deleted || rec.heard) return;
+  rec.heard = true;
+  voiceStore?.put(rec).catch(() => {});
+  const node = voiceNodes.get(id);
+  node?.li.classList.remove('unheard');
+  node?.li.querySelector('.badge')?.remove();
+}
+
+// Newest first: kept messages and the ones still on their way from the lock.
+function renderVoices() {
+  const items = [];
+  for (const r of voiceRecords.values()) {
+    if (!r.deleted) items.push({ id: r.id, when: r.ts, rec: r });
+  }
+  for (const it of voiceIndex) {
+    if (!voiceRecords.has(it.id)) items.push({ id: it.id, when: it.ts, meta: it });
+  }
+  items.sort((a, b) => b.when - a.when);
+
+  const shown = new Set(items.map((x) => x.id));
+  for (const [id, n] of voiceNodes) {
+    if (shown.has(id)) continue;
+    if (n.url) URL.revokeObjectURL(n.url);
+    voiceNodes.delete(id);
+  }
+  if (!items.length) {
+    $('voices').replaceChildren(emptyItem('Chưa có tin nhắn thoại.'));
+    return;
+  }
+  $('voices').replaceChildren(...items.map(voiceNode));
+}
+
+function voiceNode(x) {
+  const state = x.rec
+    ? 'kept'
+    : voiceFetching?.id === x.id ? 'loading' : voiceFailed.has(x.id) ? 'failed' : client?.connected ? 'waiting' : 'offline';
+  const old = voiceNodes.get(x.id);
+  if (old?.state === state) return old.li; // moved, not rebuilt: playback goes on
+
+  if (old?.url) URL.revokeObjectURL(old.url);
+  const seconds = ((x.rec ? x.rec.durationMs : x.meta.ms) / 1000).toFixed(1);
+  const when = x.when ? fmtTime(x.when) : 'Chưa rõ thời gian';
+  const del = el('button', { type: 'button', className: 'btn-ghost btn-small', textContent: 'Xóa' });
+  del.addEventListener('click', () => deleteVoice(x.id));
+  let url = null;
+  let li;
+
+  if (x.rec) {
+    url = URL.createObjectURL(x.rec.blob);
+    const audio = el('audio', { controls: true, src: url, preload: 'metadata' });
+    audio.addEventListener('play', () => markHeard(x.id));
+    li = el('li', { className: x.rec.heard ? '' : 'unheard' },
+      el('strong', { textContent: 'Khách tại cửa' }),
+      x.rec.heard ? '' : el('span', { className: 'badge', textContent: 'Mới' }),
+      ` · ${seconds} giây`,
+      el('time', { textContent: when }),
+      audio,
+      el('div', { className: 'voice-actions' }, del));
+  } else {
+    const status = el('span', { className: 'hint' });
+    const actions = el('div', { className: 'voice-actions' }, status);
+    if (state === 'loading') status.textContent = 'Đang tải từ khóa…';
+    else if (state === 'waiting') status.textContent = 'Chờ tải…';
+    else if (state === 'offline') status.textContent = 'Chờ kết nối…';
+    else {
+      status.textContent = 'Không tải được (khóa ngoại tuyến?)';
+      const retry = el('button', { type: 'button', className: 'btn-ghost btn-small', textContent: 'Thử lại' });
+      retry.addEventListener('click', () => {
+        voiceFailed.delete(x.id);
+        renderVoices();
+        fetchNextVoice();
+      });
+      actions.append(retry);
+    }
+    actions.append(del);
+    li = el('li', { className: 'unheard' },
       el('strong', { textContent: 'Khách tại cửa' }),
       ` · ${seconds} giây`,
-      el('time', { textContent: new Date(receivedAt).toLocaleString('vi-VN') }),
-      el('audio', { controls: true, src: url, preload: 'metadata' })),
-    20,
-  );
+      el('time', { textContent: when }),
+      actions);
+  }
+  voiceNodes.set(x.id, { li, state, url });
+  return li;
 }
 
 const recordBtn = $('record');
