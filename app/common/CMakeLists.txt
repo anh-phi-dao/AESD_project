@@ -3,7 +3,7 @@ set(DEVICE_REQUIRES keypad
                     audio_codec 
                     ili9341_tft_display 
                     pn532 sd_card as608
-                    solenoid_lock)
+                    solenoid_lock ina219)
 set(APP_REQUIRES auth_manager 
                  system_controller
                  device_config 
@@ -13,7 +13,8 @@ set(APP_REQUIRES auth_manager
                  event_log 
                  remote_service
                  ui_service
-                 door_sim)
+                 door_sim
+                 power_manager)
 idf_component_register(SRCS "voice_task.c" "system_task.c" 
                             "rfid_task.c" 
                             "network_task.c" 
@@ -24,5 +25,6 @@ idf_component_register(SRCS "voice_task.c" "system_task.c"
                             "storage_task.c"
                             "fingerprint_task.c"
                             "voice_task.c"
+                            "battery_task.c"
                        INCLUDE_DIRS "."
-                       REQUIRES util driver json ${DEVICE_REQUIRES} ${APP_REQUIRES})
+                       REQUIRES util driver json nvs_flash esp_timer ${DEVICE_REQUIRES} ${APP_REQUIRES})

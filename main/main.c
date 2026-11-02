@@ -11,6 +11,7 @@
 #include "nvs_flash.h"
 #include "solenoid_lock.h"
 #include "audio_task.h"
+#include "battery_task.h"
 #include "fingerprint_task.h"
 #include "storage_task.h"
 #include "voice_task.h"
@@ -103,6 +104,8 @@ void app_main(void)
     BOOT_MEM("voice");
     boot_pcf7584();
     xTaskCreatePinnedToCore(keypad_task, "keypad", 4096, NULL, 1, NULL, 1);
+    boot_battery(); /* Joins the I2C bus that boot_rfid() or boot_pcf7584() created. */
+    BOOT_MEM("battery");
 
     /* No PSRAM: Wi-Fi, TLS, LVGL and every task stack share internal RAM. A TLS handshake needs about 40 KB more. */
     ESP_LOGI(SYSTEM_TAG,
