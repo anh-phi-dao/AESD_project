@@ -5,6 +5,7 @@
 #include "sd_card.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,7 +89,7 @@ esp_err_t sd_card_init(void)
 
     /* Mount configuration optimized for performance */
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-        .format_if_mount_failed   = false,
+        .format_if_mount_failed   = (SD_CARD_FORMAT_IF_NO_FS != 0),
         .max_files                = SD_CARD_MAX_FILES,
         .allocation_unit_size     = SD_CARD_ALLOCATION_UNIT_SIZE,
         .disk_status_check_enable = false
@@ -257,7 +258,7 @@ esp_err_t sd_card_mount(void)
     }
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-        .format_if_mount_failed = false,
+        .format_if_mount_failed = (SD_CARD_FORMAT_IF_NO_FS != 0),
         .max_files              = SD_CARD_MAX_FILES,
         .allocation_unit_size   = SD_CARD_ALLOCATION_UNIT_SIZE,
     };
@@ -494,6 +495,147 @@ esp_err_t sd_card_read_txt_file(const char *filename, char *out_buffer, size_t b
     int64_t read_time = (esp_timer_get_time() - start_time) / 1000;
     ESP_LOGI(TAG, "Text file read in %lld ms: %s", read_time, full_path);
 
+    return ESP_OK;
+}
+
+/***********************************************************************************************************************
+ * Reads a whole file into a caller buffer and NUL-terminates it. Unlike sd_card_read_txt_file() nothing of the content
+ * is logged, so it can be used for files holding secrets.
+ *
+ * @param[in]  filename     Relative file name or full path starting with SD_CARD_MOUNT_POINT.
+ * @param[out] out_buffer   Buffer receiving the content.
+ * @param[in]  buffer_size  Size of out_buffer in bytes, including room for the terminating NUL.
+ * @param[out] p_length     Optional: bytes read, without the NUL.
+ *
+ * @retval ESP_OK                   File was read completely.
+ * @retval ESP_ERR_INVALID_ARG      A pointer is NULL or buffer_size is 0.
+ * @retval ESP_ERR_INVALID_STATE    The SD card is not mounted.
+ * @retval ESP_ERR_NOT_FOUND        The file does not exist.
+ * @retval ESP_ERR_INVALID_SIZE     The file is larger than buffer_size - 1.
+ * @retval ESP_FAIL                 Failed to open or read the file.
+ **********************************************************************************************************************/
+esp_err_t sd_card_read_file(const char *filename, char *out_buffer, size_t buffer_size, size_t *p_length)
+{
+    if ((filename == NULL) || (out_buffer == NULL) || (buffer_size == 0U))
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!g_sd_mounted)
+    {
+        ESP_LOGE(TAG, "SD card is not mounted");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char full_path[SD_CARD_PATH_MAX_LEN];
+    sd_card_build_full_path(filename, full_path, sizeof(full_path));
+
+    out_buffer[0] = '\0';
+    if (p_length != NULL)
+    {
+        *p_length = 0U;
+    }
+
+    errno   = 0;
+    FILE *f = fopen(full_path, "r");
+    if (f == NULL)
+    {
+        return (errno == ENOENT) ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+    }
+
+    const size_t length = fread(out_buffer, 1, buffer_size - 1U, f);
+    esp_err_t    ret    = ESP_OK;
+    if (ferror(f))
+    {
+        ret = ESP_FAIL;
+    }
+    else if ((length == (buffer_size - 1U)) && (fgetc(f) != EOF))
+    {
+        ret = ESP_ERR_INVALID_SIZE;
+    }
+    fclose(f);
+
+    out_buffer[length] = '\0';
+    if ((ret == ESP_OK) && (p_length != NULL))
+    {
+        *p_length = length;
+    }
+    return ret;
+}
+
+/***********************************************************************************************************************
+ * Renames a file on the SD card. FAT cannot rename onto an existing file, so a file at new_name is deleted first.
+ *
+ * @retval ESP_OK                   File was renamed.
+ * @retval ESP_ERR_INVALID_ARG      A name is NULL.
+ * @retval ESP_ERR_INVALID_STATE    The SD card is not mounted.
+ * @retval ESP_ERR_NOT_FOUND        old_name does not exist; new_name is left untouched.
+ * @retval ESP_FAIL                 The rename failed.
+ **********************************************************************************************************************/
+esp_err_t sd_card_rename_file(const char *old_name, const char *new_name)
+{
+    if ((old_name == NULL) || (new_name == NULL))
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!g_sd_mounted)
+    {
+        ESP_LOGE(TAG, "SD card is not mounted");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char old_path[SD_CARD_PATH_MAX_LEN];
+    char new_path[SD_CARD_PATH_MAX_LEN];
+    sd_card_build_full_path(old_name, old_path, sizeof(old_path));
+    sd_card_build_full_path(new_name, new_path, sizeof(new_path));
+
+    struct stat old_stat;
+    if (stat(old_path, &old_stat) != 0)
+    {
+        /* Checked before new_name is deleted, so a missing source never costs the destination. */
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    (void)unlink(new_path);
+    if (rename(old_path, new_path) != 0)
+    {
+        ESP_LOGE(TAG, "Failed to rename %s to %s", old_path, new_path);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+/***********************************************************************************************************************
+ * Deletes one file on the SD card.
+ *
+ * @retval ESP_OK                   File was deleted.
+ * @retval ESP_ERR_INVALID_ARG      filename is NULL.
+ * @retval ESP_ERR_INVALID_STATE    The SD card is not mounted.
+ * @retval ESP_ERR_NOT_FOUND        The file does not exist.
+ * @retval ESP_FAIL                 The delete failed.
+ **********************************************************************************************************************/
+esp_err_t sd_card_remove_file(const char *filename)
+{
+    if (filename == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!g_sd_mounted)
+    {
+        ESP_LOGE(TAG, "SD card is not mounted");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char full_path[SD_CARD_PATH_MAX_LEN];
+    sd_card_build_full_path(filename, full_path, sizeof(full_path));
+
+    errno = 0;
+    if (unlink(full_path) != 0)
+    {
+        return (errno == ENOENT) ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+    }
     return ESP_OK;
 }
 

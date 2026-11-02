@@ -4,7 +4,7 @@ Web chỉ là file tĩnh trong `web/`, không có server riêng. Trình duyệt 
 
 ```
 Điện thoại / máy tính ──HTTPS──> GitHub Pages            chỉ tải HTML/JS/CSS
-        └──────────wss://:8884──> HiveMQ Cloud <──mqtts://:8883── ESP32-S3
+        └──────────wss://:8084──> EMQX Cloud Serverless <──mqtts://:8883── ESP32-S3
 ```
 
 Host tĩnh không thấy mật khẩu hay dữ liệu. Web và MQTT không có lệnh mở cửa, nên lộ tài khoản web cũng không mở được
@@ -33,7 +33,7 @@ Sửa `web/config.js` trước khi deploy:
 
 ```js
 export default {
-  brokerUrl: 'wss://xxxx.s1.eu.hivemq.cloud:8884/mqtt',
+  brokerUrl: 'wss://<address>.emqxsl.com:8084/mqtt',
   deviceId: 'door01',
 };
 ```
@@ -43,16 +43,25 @@ export default {
 
 ## 3. Tài khoản người dùng
 
-Mỗi người (hoặc mỗi gia đình) một tài khoản MQTT riêng trên HiveMQ Cloud (Access Management), khác tài khoản của thiết
-bị. Mất điện thoại thì chỉ cần xóa tài khoản đó.
+Broker: EMQX Cloud Serverless (gói miễn phí, 1 GB dữ liệu mỗi tháng; một tin thoại 15 s tốn khoảng 1 MB). Trang
+Overview của deployment cho địa chỉ, cổng `8883` (MQTT qua TLS, cho thiết bị) và `8084` (WebSocket qua TLS, cho web).
+Không cần tải CA: ESP-IDF và trình duyệt đã tin chứng chỉ của EMQX.
 
-| Topic `lock/<id>/...` | Quyền của web |
-|---|---|
-| `status`, `event`, `alert`, `recent`, `history/resp`, `voice/out` | Subscribe |
-| `history/req`, `voice/in` | Publish |
+Access Control → Authentication: mỗi người (hoặc mỗi gia đình) một tài khoản riêng, ví dụ `owner_door01`, khác tài
+khoản của thiết bị (`door01`). Mất điện thoại thì chỉ cần xóa tài khoản đó.
 
-Gói miễn phí của HiveMQ có thể không phân quyền được theo topic. Khi đó web có thể publish sự kiện giả, nhưng vẫn không
-mở được cửa. Cần phân quyền đúng thì dùng Mosquitto tự host với `broker/mosquitto/acl.example`.
+Access Control → Authorization, cho từng username:
+
+| Username | Topic | Action | Permission |
+|---|---|---|---|
+| `door01` | `lock/door01/#` | Publish | Allow |
+| `door01` | `lock/door01/history/req`, `lock/door01/voice/in`, `lock/door01/voice/req` | Subscribe | Allow |
+| `owner_door01` | `lock/door01/#` | Subscribe | Allow |
+| `owner_door01` | `lock/door01/history/req`, `lock/door01/voice/in`, `lock/door01/voice/req` | Publish | Allow |
+
+EMQX xét quy tắc từ trên xuống, gặp quy tắc khớp đầu tiên là dừng. Một quy tắc `#` Deny đặt **trên** các quy tắc Allow
+sẽ chặn hết. Muốn chặn phần còn lại thì đặt nó ở cuối, rồi thử lại web và thiết bị. Thiếu quyền thì web vẫn không mở
+được cửa (không có lệnh mở cửa), chỉ có thể gửi dữ liệu giả. Tự host: `broker/mosquitto/acl.example`.
 
 ## 4. Cài như app
 
@@ -60,7 +69,7 @@ Android (Chrome): menu ⋮ → Cài đặt ứng dụng. iPhone (Safari): Chia s
 
 ## 5. Giới hạn
 
-Mạng 4G chặn cổng 8884: trang tải được nhưng đăng nhập báo "Broker không phản hồi". Khi demo dùng WiFi hoặc hotspot nhà
+Mạng 4G có thể chặn cổng 8084: trang tải được nhưng đăng nhập báo "Broker không phản hồi". Khi demo dùng WiFi hoặc hotspot nhà
 mạng khác. Muốn chạy mọi mạng thì cần broker hoặc proxy nhận WebSocket ở cổng 443.
 
 Web chỉ nhận cảnh báo khi app đang mở. Mở lại thì trang báo các cảnh báo đã lỡ. Thông báo nền sẽ đi qua Telegram bot

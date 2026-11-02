@@ -20,3 +20,23 @@ CONFIG_LV_COLOR_16_SWAP=y
 # Fonts used by the SquareLine projects (design/). Each size costs flash only, about 15-35 KB.
 CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
+
+# No PSRAM: Wi-Fi, TLS, LVGL and every task share internal RAM. mbedTLS allocates its 16 KB receive buffer only while
+# a record is read and frees the CA chain and handshake data afterwards; otherwise mbedtls_ssl_setup fails with
+# -0x7F00 (MBEDTLS_ERR_SSL_ALLOC_FAILED) once the voice messages are running.
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
+# 6 static Wi-Fi RX buffers instead of 10 (1.6 KB each); more are still allocated on demand.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+# LVGL draw buffers: 2 x 320 x 10 lines x 2 bytes = 12.8 KB (20 lines took 25.6 KB). Redraws in more, smaller steps.
+CONFIG_UI_LVGL_BUF_LINES=10
+
+# Code kept in IRAM shares the same 340 KB as the heap. Moving these to flash gives the heap ~70 KB back (87 KB ->
+# 159 KB at boot) at a small speed cost; Kconfig then also moves the SPI master ISR out of IRAM, which is safe because
+# no ISR here must run while the flash cache is off.
+# CONFIG_ESP_WIFI_IRAM_OPT is not set
+# CONFIG_ESP_WIFI_RX_IRAM_OPT is not set
+CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
+CONFIG_HEAP_PLACE_FUNCTION_INTO_FLASH=y
+CONFIG_RINGBUF_PLACE_FUNCTIONS_INTO_FLASH=y

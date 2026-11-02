@@ -11,7 +11,14 @@
 #include "driver/i2c_master.h"
 #include "esp_timer.h"
 #include "esp_log.h"
-#include "password.h"
+#include "audio_helper.h"
+#include "rfid_task.h"
+
+/* 1: without a PCF8574 the keys come from the serial console (development). Set 0 for a product: the debug port
+ * would otherwise be a second keypad. */
+#ifndef KEYPAD_SERIAL_FALLBACK
+#define KEYPAD_SERIAL_FALLBACK 1
+#endif
 #include "sdkconfig.h"
 
 /***********************************************************************************************************************

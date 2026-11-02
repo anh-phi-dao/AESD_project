@@ -13,7 +13,7 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 
 | Phần | Trạng thái |
 | WiFi + đồng bộ giờ SNTP (`app/network_manager`) | Xong, em đã chạy thử trên module |
-| MQTT qua TLS (`middleware/mqtt_client`) | Xong, đã kết nối HiveMQ Cloud |
+| MQTT qua TLS (`middleware/mqtt_client`) | Xong, đã kết nối EMQX Cloud Serverless |
 | Đọc credential từ NVS (`app/device_config`) | Xong |
 | Trang web chỉ xem (`web/`) | Xong: trạng thái online/offline, lịch sử, cảnh báo (banner + âm báo, báo cả cảnh báo lỡ khi đóng trang), tin nhắn thoại |
 | Lịch sử gần nhất (`app/event_log`) | Xong: 20 sự kiện + 10 cảnh báo, lưu NVS, giữ qua khởi động lại. Log đầy đủ chờ thẻ SD |
@@ -22,7 +22,7 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 | Telegram bot | Chưa làm |
 | Lưu log ra vào lên thẻ SD | Chưa làm |
 | Tin nhắn thoại trên firmware (INMP441, loa) | Chưa làm; web đã sẵn sàng |
-| Màn hình TFT ILI9341 + LVGL (`device/ili9341_tft_display`, `middleware/lvgl_port`, `app/ui_service`) | Đã có giao diện SquareLine (người dùng + admin), keypad gõ được vào màn hình. Chưa nối với lock_service ([docs/tft_ui.md](docs/tft_ui.md)) |
+| Màn hình TFT ILI9341 + LVGL (`device/ili9341_tft_display`, `middleware/lvgl_port`, `app/ui_service`) | Đã có giao diện SquareLine (một project: 6 màn hình + popup, gồm cả admin). Phím chạy theo màn hình: `system_control` quyết định (PIN, thẻ, khóa tạm, admin, ghi âm), `ui_flow_task` chỉ hiển thị ([docs/ui_data.md](docs/ui_data.md)) |
 | Solenoid, NFC (PN532), audio | Chưa làm |
 
 ---
@@ -33,13 +33,13 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 AESD_project/
 ├── main/   Điểm vào: khởi tạo NVS, task mạng, màn hình, keypad (đang test)
 ├── app/
-│   ├── common/          Task chung: network_task, keypad_task, ui_task (nối màn hình với LVGL và keypad)
+│   ├── common/          Task chung: network_task, keypad_task, ui_task (khởi động màn hình), ui_flow_task (màn hình theo system_control), system_task, rfid_task
 │   ├── device_config/ NEW Đọc credential từ partition "devcfg"
 │   ├── network_manager/  NEW  WiFi STA, tự kết nối lại, SNTP, chờ "có IP + đúng giờ"
 │   ├── event_log/       NEW  Gán id, giữ sự kiện/cảnh báo gần nhất trong NVS, mã phiên gen
 │   ├── remote_service/  NEW  Một task publish event/alert/recent, trả lời history/req
 │   ├── door_sim/        NEW  Giả lập keypad/NFC/cảm biến cho board dev (nút BOOT, lệnh "sim")
-│   ├── ui_service/      NEW  Màn hình: nạp giao diện SquareLine trong ui/ (người dùng) và ui_admin/ (admin), nhận phím keypad
+│   ├── ui_service/      NEW  Màn hình: nạp giao diện SquareLine trong ui/, chuyển màn hình, popup, nhận phím keypad
 │   ├── lock_service/ ...     (chưa có code)
 ├── device/                   Driver phần cứng (pcf8574, keypad, ili9341_tft_display, ...)
 ├── middleware/
@@ -110,10 +110,10 @@ Board dev ESP32-S3 **N16R8** chạy nguyên cấu hình này mà không cần s�
 ### Cần chuẩn bị
 - ESP-IDF **v5.5.5** (mở bằng ESP-IDF PowerShell), Python 3, board ESP32-S3.
 - WiFi **2.4 GHz**, bảo mật WPA2/WPA3, mật khẩu từ 8 ký tự. Hotspot iPhone cần bật "Maximize Compatibility".
-- Một broker MQTT. Nhanh nhất là HiveMQ Cloud bản miễn phí:
-  - Tạo cluster, rồi tạo **2 tài khoản**: một cho thiết bị (ví dụ `door01`), một cho web (ví dụ `owner`).
-  - Thiết bị dùng `mqtts://<host>:8883`, web dùng `wss://<host>:8884/mqtt`. Kiểm tra lại cổng và đường
-    dẫn trong trang quản lý của broker.
+- Một broker MQTT. Nhóm dùng EMQX Cloud Serverless bản miễn phí:
+  - Tạo deployment Serverless, rồi tạo **2 tài khoản**: một cho thiết bị (`door01`), một cho web (`owner_door01`),
+    và phân quyền theo [docs/deploy_web.md](docs/deploy_web.md) mục 3.
+  - Thiết bị dùng `mqtts://<address>:8883`, web dùng `wss://<address>:8084/mqtt` (địa chỉ ở trang Overview).
   - Muốn tự host thì xem [broker/mosquitto/README.md](broker/mosquitto/README.md).
 
 ### Các bước
@@ -153,7 +153,7 @@ cd web
 python -m http.server 8000
 ```
 Vào `http://localhost:8000` rồi đăng nhập:
-- **Broker:** `wss://<host>:8884/mqtt`
+- **Broker:** `wss://<address>:8084/mqtt` (đã điền sẵn trong `web/config.js`)
 - **Mã thiết bị:** `door01`
 - **Tài khoản:** tài khoản web
 

@@ -21,10 +21,6 @@ extern lv_obj_t * ui_HomePrompt;
 extern lv_obj_t * ui_HomeMessages;
 extern lv_obj_t * ui_HomeHint;
 extern lv_obj_t * ui_HomeHintText;
-extern lv_obj_t * ui_HomeWifi;
-extern lv_obj_t * ui_HomeWifiOff;
-extern lv_obj_t * ui_HomeBattery;
-extern lv_obj_t * ui_HomeBatteryPct;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

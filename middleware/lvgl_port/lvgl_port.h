@@ -88,6 +88,10 @@ extern "C"
     /* Queue one key press for the keypad input: a printable character or an LV_KEY_* code. Never blocks. */
     app_err_t lvgl_port_post_key(lvgl_port_instance_ctrl_t *const p_ctrl, uint32_t key);
 
+    /* Hands queued keys to the focused object now instead of at the next LVGL read. Call under the lock, before a
+     * screen change, so a key pressed on one screen is not typed into the next. Does nothing without use_keypad. */
+    void lvgl_port_process_keys(lvgl_port_instance_ctrl_t *const p_ctrl);
+
     /* Default group that new focusable objects join, NULL without use_keypad. Call under the lock. */
     lv_group_t *lvgl_port_get_group(lvgl_port_instance_ctrl_t *const p_ctrl);
 

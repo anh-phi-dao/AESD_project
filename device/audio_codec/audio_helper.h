@@ -1,6 +1,10 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 
+#ifndef USED_FREERTOS
+#define USED_FREERTOS 1
+#endif
+
 /***********************************************************************************************************************
  * Includes   <System Includes> , "Project Includes"
  **********************************************************************************************************************/
@@ -12,6 +16,7 @@
 #include "driver/i2s_std.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 /*******************************************************************************************************************
  * Macro definitions
@@ -19,6 +24,28 @@
 
 #define AUDIO_BUFFER_SIZE 1024
 
+/*******************************************************************************************************************
+ * Enum and typdef definitions
+ ******************************************************************************************************************/
+struct audio_management
+{
+    SemaphoreHandle_t audio_mutex;
+    uint8_t           audio_state;
+};
+
+typedef struct audio_management audio_management_t;
+
+enum
+{
+    AUDIO_ERROR_STATE = -1,
+    AUDIO_UNSED,
+    AUDIO_RECORDING,
+    AUDIO_PLAYING,
+    AUDIO_PLAYING_BEEP,
+    __AUDIO_MAX_STATE
+};
+
+extern audio_management_t audio_management_object;
 /*******************************************************************************************************************
  * Public APIs
  ******************************************************************************************************************/
@@ -36,6 +63,8 @@
  * @return
  *     This function does not return a value.
  */
-void audio_mono_to_stereo(const int16_t *mono_buffer, int16_t *stereo_buffer, size_t mono_samples);
-
+void      audio_mono_to_stereo(const int16_t *mono_buffer, int16_t *stereo_buffer, size_t mono_samples);
+esp_err_t audio_init_management(audio_management_t *audio_management_object_ptr);
+esp_err_t audio_set_state(audio_management_t *audio_management_object_ptr, uint8_t state);
+uint8_t   audio_get_state(audio_management_t *audio_management_object_ptr);
 #endif

@@ -19,13 +19,12 @@ extern "C" {
 ///////////////////// SCREENS ////////////////////
 
 #include "screens/ui_Home.h"
-#include "screens/ui_Pin.h"
-#include "screens/ui_Granted.h"
-#include "screens/ui_Denied.h"
+#include "screens/ui_Input.h"
 #include "screens/ui_Voice.h"
-#include "screens/ui_VoiceDone.h"
-#include "screens/ui_Alert.h"
-#include "screens/ui_LockDoor.h"
+#include "screens/ui_AdminLogin.h"
+#include "screens/ui_Menu.h"
+#include "screens/ui_Status.h"
+#include "screens/ui_Overlay.h"
 
 ///////////////////// VARIABLES ////////////////////
 

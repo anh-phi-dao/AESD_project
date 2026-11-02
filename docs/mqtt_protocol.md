@@ -7,7 +7,7 @@ Thỏa thuận chung giữa firmware, web (`web/`) và broker. Đổi topic ho�
 Không có cách nào mở cửa qua mạng. Chỉ mở tại chỗ bằng keypad / thẻ / vân tay. Ràng buộc này giữ ở 3 nơi:
 
 1. Firmware: không có topic mở cửa. Component dùng `mqtt_conn` không được `REQUIRES lock_service`.
-2. Broker: tài khoản người dùng chỉ được publish `history/req` và `voice/in`.
+2. Broker: tài khoản người dùng chỉ được publish `history/req`, `voice/in` và `voice/req`.
 3. Web: `LockClient` không có hàm mở cửa.
 
 Thiết bị bỏ qua message retained gửi tới, chỉ subscribe topic trong allowlist, bỏ payload quá cỡ. Thiết bị và người
@@ -27,7 +27,9 @@ SNTP trước khi ghi log.
 | `history/req` | web → thiết bị | không | JSON yêu cầu lịch sử, tối đa 256 byte |
 | `history/resp` | thiết bị → web | không | JSON một trang lịch sử |
 | `voice/out` | thiết bị → web | không | Tin nhắn thoại của khách tại cửa |
-| `voice/in` | web → thiết bị | không | Tin nhắn thoại chủ nhà gửi tới cửa (cần loa) |
+| `voice/index` | thiết bị → web | có | JSON danh sách tin của khách còn trên khóa |
+| `voice/req` | web → thiết bị | không | JSON xin gửi lại / xóa một tin của khách, tối đa 64 byte |
+| `voice/in` | web → thiết bị | không | Tin nhắn thoại chủ nhà gửi cho khách, tối đa 4112 byte mỗi chunk |
 
 ## 3. Payload
 
@@ -86,12 +88,41 @@ Mỗi tin chia thành nhiều chunk. Mỗi chunk có header 16 byte (little-endi
 | 12 | 4 | sample_rate | 16000 |
 | 16 | tối đa 4096 | data | Độ dài chẵn |
 
-Tin dài tối đa khoảng 20 s, web giới hạn 15 s. Sau 30 s chưa nhận đủ chunk thì bỏ tin. Chưa có loa thì firmware chưa
-cần subscribe `voice/in`.
+Tin dài tối đa khoảng 20 s, web giới hạn 15 s. Sau 30 s chưa nhận đủ chunk thì bỏ tin. Firmware chỉ nhận
+`sample_rate` 16000.
+
+Hai chiều, hai loại tin, không trộn lẫn:
+
+- **Tin của khách → chủ nhà.** Khách giữ `*` ở Home để ghi (tối đa 15 s), nghe lại, rồi `#` để gửi. Khóa lưu vào thẻ SD (10 tin gần nhất, tin cũ
+  nhất bị thay), gửi ngay lên `voice/out` với `msg_id` = `id` của tin, rồi publish lại `voice/index`. Khóa không bao
+  giờ phát tin của khách, nên khách sau không nghe được tin của khách trước.
+- **Tin của chủ nhà → khách.** Gửi từ web qua `voice/in`, hoặc admin ghi tại cửa (menu admin, mục 4). Khóa giữ 5 tin
+  (tin từ web thay tin cũ nhất khi đầy). Khách giữ `#` ở Home: 1 tin thì phát luôn, nhiều tin thì hiện danh sách.
+
+`voice/index` (retained), mới nhất trước:
+
+```json
+{"items": [{"id": 3735928559, "ts": 1790000000, "ms": 8400}]}
+```
+
+`id`: số ngẫu nhiên 32 bit, không lặp lại sau khi khởi động lại. `ts`: 0 nếu khóa chưa đồng bộ giờ. `ms`: độ dài.
+
+`voice/req`:
+
+```json
+{"op": "get", "id": 3735928559}
+{"op": "del", "id": 3735928559}
+```
+
+`get`: khóa gửi lại tin đó trên `voice/out`. `del`: khóa xóa tin rồi publish lại `voice/index`. Web lưu tin đã nhận
+trong trình duyệt (IndexedDB), nên tin gửi lúc trang đóng vẫn tải về được khi mở lại, và vẫn còn sau khi khóa đã thay
+tin đó. Khóa gửi từng chunk và chờ broker xác nhận, nên một tin 15 s mất vài giây; khách bấm phím thì khóa dừng gửi,
+web tự xin lại sau.
 
 ## 5. Broker
 
-Cloud (mặc định): thiết bị kết nối `mqtts://<host>:8883`, xác thực bằng certificate bundle của ESP-IDF. Web kết nối
-`wss://<host>:<port>/mqtt`. Nên chọn broker phân quyền được theo topic cho từng tài khoản.
+Cloud (mặc định): EMQX Cloud Serverless. Thiết bị kết nối `mqtts://<address>:8883`, xác thực bằng certificate bundle
+của ESP-IDF. Web kết nối `wss://<address>:8084/mqtt`. Quyền theo topic cho từng tài khoản: `docs/deploy_web.md` mục 3.
+Giới hạn của broker: retained, Last Will và QoS 1 đều có; message tối đa 1 MB (chunk thoại 4112 byte).
 
 Tự host: xem `broker/mosquitto/`. Thiết bị truyền CA của broker qua `p_ca_cert_pem`.

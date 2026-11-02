@@ -14,10 +14,10 @@
  * Macro definitions
  **********************************************************************************************************************/
 
-#define MQTT_CONN_TAG              "MQTT_CONN"
-#define MQTT_CONN_RX_DROP          (-1)
-#define MQTT_CONN_PUBLISH_FAILED   (-1)
-#define MQTT_CONN_OUTBOX_FULL      (-2)
+#define MQTT_CONN_TAG            "MQTT_CONN"
+#define MQTT_CONN_RX_DROP        (-1)
+#define MQTT_CONN_PUBLISH_FAILED (-1)
+#define MQTT_CONN_OUTBOX_FULL    (-2)
 
 /***********************************************************************************************************************
  * Typedef definitions
@@ -248,6 +248,19 @@ app_err_t mqtt_conn_publish(mqtt_conn_instance_ctrl_t *const p_ctrl,
 bool mqtt_conn_is_connected(const mqtt_conn_instance_ctrl_t *const p_ctrl)
 {
     return (p_ctrl != NULL) && p_ctrl->init && p_ctrl->connected;
+}
+
+/***********************************************************************************************************************
+ * Returns the bytes held in the esp-mqtt outbox until the broker acknowledges them.
+ **********************************************************************************************************************/
+size_t mqtt_conn_outbox_size(const mqtt_conn_instance_ctrl_t *const p_ctrl)
+{
+    if ((p_ctrl == NULL) || !p_ctrl->init)
+    {
+        return 0U;
+    }
+    const int size = esp_mqtt_client_get_outbox_size(p_ctrl->p_client);
+    return (size > 0) ? (size_t)size : 0U;
 }
 
 /***********************************************************************************************************************
@@ -511,7 +524,11 @@ static void mqtt_conn_event_handler(void *p_handler_args, esp_event_base_t base,
             }
             else
             {
-                ESP_LOGE(MQTT_CONN_TAG, "Transport error");
+                /* TLS needs ~40 KB of internal RAM with a 16 KB block: show what is left when it fails. */
+                ESP_LOGE(MQTT_CONN_TAG,
+                         "Transport error (free internal RAM %u, largest block %u)",
+                         (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
             }
             break;
 

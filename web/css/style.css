@@ -118,6 +118,12 @@ tr.ok td:last-child { color: var(--ok); }
 #history-more { margin-top: 12px; }
 
 .voice-send { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 12px; }
+.voice-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 6px; }
+.voice-actions .hint { margin-right: auto; }
+.btn-small { padding: 4px 10px; font-size: 0.85rem; }
+.list li.unheard strong { color: var(--accent); }
+.badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 0.75rem;
+  font-weight: 600; color: #ffffff; background: var(--bad); vertical-align: middle; }
 
 /* Alarm banner for warning/critical alerts, including ones missed while the page was closed. */
 .alarm {

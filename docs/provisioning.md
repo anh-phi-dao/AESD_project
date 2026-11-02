@@ -12,7 +12,10 @@ Thiếu credential thì firmware vẫn chạy, khóa vẫn mở bằng keypad / 
 
 ## 1. Board
 
-Firmware cấu hình cho board sản phẩm: ESP32-S3 flash 4 MB, không PSRAM. Board dev N16R8 chạy nguyên cấu hình này.
+Firmware cấu hình cho board sản phẩm: ESP32-S3 flash 4 MB, không PSRAM. Mọi thứ dùng chung khoảng 340 KB RAM trong
+chip, nên `sdkconfig.defaults` đưa code của WiFi, FreeRTOS và heap từ IRAM về flash, và cho mbedTLS cấp bộ đệm động.
+Lúc khởi động log in RAM còn trống sau từng bước (`RAM after ...`); sau khi khởi động phải còn trên ~50 KB thì TLS mới
+kết nối được. Các tùy chọn này đã có sẵn trong `sdkconfig`; đừng xóa `sdkconfig`, vì nó còn những tùy chọn không nằm trong `sdkconfig.defaults` (ví dụ stack 8 KB của main task). Board dev N16R8 chạy nguyên cấu hình này.
 Không bật PSRAM hay tăng flash size trên board dev, nếu không lỗi thiếu RAM chỉ lộ ra trên board sản phẩm.
 
 Trên N16R8 không nối thiết bị vào GPIO 26 đến 37 (flash và PSRAM). GPIO 19 / 20 là USB.
@@ -77,3 +80,5 @@ bước này ghi eFuse, không đảo ngược được: chỉ làm trên board 
 | `authentication failed` | Sai `wifi_pass` |
 | Có IP nhưng không có `Time synced` | Mạng chặn NTP (UDP 123), đổi mạng |
 | `Broker refused the connection` | Kiểm tra `mqtt_user` / `mqtt_pass` và ACL |
+| `mbedtls_ssl_setup returned -0x7F00` / `Transport error (free internal RAM ...)` | Thiếu RAM cho TLS (cần ~30 KB, khối liền ~16 KB). Xem các dòng `RAM after ...` lúc khởi động; giữ các tùy chọn RAM trong `sdkconfig.defaults` |
+| `Error create mqtt task` | Như trên: không còn RAM cho task MQTT |

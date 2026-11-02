@@ -35,6 +35,9 @@
 #endif
 
 #define MQTT_CONN_QOS_MAX               2U
+/* QoS 1 messages waiting for the broker are kept in RAM (expired after 30 s by esp-mqtt). Above this, publishing
+ * fails with APP_ERR_NO_MEMORY instead of taking RAM that TLS needs (no PSRAM). */
+#define MQTT_CONN_OUTBOX_LIMIT          (24U * 1024U)
 #define MQTT_CONN_DEFAULT_KEEPALIVE_S   30U
 
 #endif /* MQTT_CONN_CONFIG_H_ */

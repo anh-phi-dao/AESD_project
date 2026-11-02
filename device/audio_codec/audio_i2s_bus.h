@@ -21,6 +21,8 @@
 #define AUDIO_I2S_DOUT_PIN    16 /* SD_OUT -> NS4168 DATA */
 #define AUDIO_I2S_DIN_PIN     17 /* SD_IN  <- INMP441 SD  */
 #define AUDIO_I2S_SAMPLE_RATE 16000
+/* DMA per direction = DESC x FRAMES x 8 bytes (32-bit stereo): 8 x 256 = 16 KB, 128 ms of audio, so an SD card write
+ * during a recording does not lose samples. Both directions take 32 KB of internal RAM. */
 #define AUDIO_I2S_DMA_DESC    8
 #define AUDIO_I2S_DMA_FRAMES  256
 

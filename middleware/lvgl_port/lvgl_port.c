@@ -181,6 +181,22 @@ app_err_t lvgl_port_post_key(lvgl_port_instance_ctrl_t *const p_ctrl, uint32_t k
 }
 
 /***********************************************************************************************************************
+ * Runs one keypad read, which takes every queued key (continue_reading), so they reach the current focus. Keys are
+ * queued before the task that reacts to them changes the screen, and LVGL reads only every LV_INDEV_DEF_READ_PERIOD.
+ * Call under the lock.
+ *
+ * @param[in,out] p_ctrl  Pointer to an initialized runtime control block.
+ **********************************************************************************************************************/
+void lvgl_port_process_keys(lvgl_port_instance_ctrl_t *const p_ctrl)
+{
+    if ((NULL != p_ctrl) && p_ctrl->init && (NULL != p_ctrl->p_keypad)
+        && (0U != uxQueueMessagesWaiting(p_ctrl->key_queue)))
+    {
+        lv_indev_read_timer_cb(p_ctrl->keypad_drv.read_timer);
+    }
+}
+
+/***********************************************************************************************************************
  * Returns the default group that focusable objects join, or NULL when the keypad is not used.
  **********************************************************************************************************************/
 lv_group_t *lvgl_port_get_group(lvgl_port_instance_ctrl_t *const p_ctrl)

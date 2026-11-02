@@ -2,6 +2,7 @@
  * Includes   <System Includes> , "Project Includes"
  **********************************************************************************************************************/
 #include <stdio.h>
+#include <string.h>
 #include "network_task.h"
 #include "device_config.h"
 #include "door_sim.h"
@@ -9,15 +10,16 @@
 #include "mqtt_conn.h"
 #include "network_manager.h"
 #include "remote_service.h"
+#include "voice_task.h"
 
 /***********************************************************************************************************************
  * Macro definitions
  **********************************************************************************************************************/
 
-#define NETWORK_TAG              "NETWORK"
-#define NETWORK_WAIT_LOG_MS      15000U
+#define NETWORK_TAG               "NETWORK"
+#define NETWORK_WAIT_LOG_MS       15000U
 #define NETWORK_MQTT_TOPIC_PREFIX "lock"
-#define NETWORK_HOSTNAME_SIZE    33U /* ESP-IDF accepts at most 32: "smartlock-" + 22 id chars. */
+#define NETWORK_HOSTNAME_SIZE     33U /* ESP-IDF accepts at most 32: "smartlock-" + 22 id chars. */
 
 /***********************************************************************************************************************
  * Private global variables
@@ -32,11 +34,12 @@ static mqtt_conn_instance_ctrl_t       s_mqtt_ctrl  = {0};
 static char                            s_hostname[NETWORK_HOSTNAME_SIZE];
 
 /* Event log (interim store until storage_manager logs to the SD card) and its MQTT bridge. */
-static event_log_instance_ctrl_t      s_event_log_ctrl = {0};
-static remote_service_instance_ctrl_t s_remote_ctrl    = {0};
-static const remote_service_config_t  s_remote_cfg     = {
-         .p_log  = &s_event_log_ctrl,
-         .p_mqtt = &s_mqtt_ctrl,
+static event_log_instance_ctrl_t      s_event_log_ctrl  = {0};
+static remote_service_instance_ctrl_t s_remote_ctrl     = {0};
+static bool                           s_event_log_ready = false;
+static const remote_service_config_t  s_remote_cfg      = {
+          .p_log  = &s_event_log_ctrl,
+          .p_mqtt = &s_mqtt_ctrl,
 };
 static const event_log_config_t s_event_log_cfg = {
     .p_nvs_namespace = NULL,
@@ -58,7 +61,12 @@ static const mqtt_conn_sub_t s_mqtt_subs[] = {
     {.p_topic_suffix  = REMOTE_SERVICE_TOPIC_HISTORY_REQ,
      .qos             = 1U,
      .max_payload_len = REMOTE_SERVICE_HISTORY_REQ_MAX_LEN},
+    {.p_topic_suffix = VOICE_TOPIC_IN, .qos = 1U, .max_payload_len = VOICE_IN_MAX_LEN},
+    {.p_topic_suffix = VOICE_TOPIC_REQ, .qos = 1U, .max_payload_len = VOICE_REQ_MAX_LEN},
 };
+
+static void network_mqtt_rx(const mqtt_conn_rx_msg_t *const p_msg, void *p_user_ctx);
+static void network_mqtt_state(mqtt_conn_state_t state, void *p_user_ctx);
 
 /***********************************************************************************************************************
  * Public functions
@@ -78,6 +86,7 @@ void boot_event_log(void)
         ESP_LOGE(NETWORK_TAG, "event_log_init failed with application error: %d", ret);
         return;
     }
+    s_event_log_ready = true;
 
 #if CONFIG_DOOR_SIM_ENABLE
     ret = door_sim_init(&s_door_sim_ctrl, &s_door_sim_cfg);
@@ -139,8 +148,8 @@ void network_task(void *pvParameter)
         .p_device_id    = s_device_cfg.device_id,
         .p_subs         = s_mqtt_subs,
         .sub_count      = (uint8_t)(sizeof(s_mqtt_subs) / sizeof(s_mqtt_subs[0])),
-        .p_rx_cb        = remote_service_mqtt_rx_callback,
-        .p_state_cb     = remote_service_mqtt_state_callback,
+        .p_rx_cb        = network_mqtt_rx,
+        .p_state_cb     = network_mqtt_state,
         .p_user_ctx     = &s_remote_ctrl,
     };
 
@@ -150,4 +159,43 @@ void network_task(void *pvParameter)
         ESP_LOGE(NETWORK_TAG, "mqtt_conn_init failed with application error: %d", ret);
     }
     vTaskDelete(NULL);
+}
+
+event_log_instance_ctrl_t *network_task_get_event_log(void)
+{
+    return s_event_log_ready ? &s_event_log_ctrl : NULL;
+}
+
+bool network_task_is_wifi_connected(void)
+{
+    return network_manager_is_connected(&s_net_ctrl);
+}
+
+mqtt_conn_instance_ctrl_t *network_task_get_mqtt(void)
+{
+    return s_mqtt_ctrl.init ? &s_mqtt_ctrl : NULL;
+}
+
+/***********************************************************************************************************************
+ * Private functions
+ **********************************************************************************************************************/
+
+/* Voice topics to the voice task, history requests to remote_service. In the MQTT task. */
+static void network_mqtt_rx(const mqtt_conn_rx_msg_t *const p_msg, void *p_user_ctx)
+{
+    if ((0 == strcmp(p_msg->p_topic_suffix, VOICE_TOPIC_IN)) || (0 == strcmp(p_msg->p_topic_suffix, VOICE_TOPIC_REQ)))
+    {
+        voice_task_mqtt_rx(p_msg->p_topic_suffix, p_msg->p_data, p_msg->data_len);
+        return;
+    }
+    remote_service_mqtt_rx_callback(p_msg, p_user_ctx);
+}
+
+static void network_mqtt_state(mqtt_conn_state_t state, void *p_user_ctx)
+{
+    remote_service_mqtt_state_callback(state, p_user_ctx);
+    if (MQTT_CONN_STATE_CONNECTED == state)
+    {
+        voice_task_mqtt_connected();
+    }
 }

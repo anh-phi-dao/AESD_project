@@ -1,5 +1,7 @@
 #include "rfid_task.h"
 
+#include "esp_rom_sys.h"
+
 #define SCL_PIN   7
 #define SDA_PIN   15
 #define RESET_PIN -1
@@ -13,12 +15,77 @@ uint8_t uid_length; // Length of the UID (4 or 7 bytes depending on ISO14443A ca
 
 SemaphoreHandle_t uid_mutex;
 
+#define RFID_INIT_TRIES                                                                          \
+    5U /* 1 s apart. Then the lock runs without cards rather than without keys and fingerprints. \
+        */
+
+static bool s_ready = false;
+
+bool rfid_task_is_ready(void)
+{
+    return s_ready;
+}
+
+/* Before the I2C driver takes the pins: logs the idle levels of SDA / SCL (both must read 1 through the pull-ups), and
+ * frees a slave left holding SDA low by a reset in the middle of a byte (9 clocks, then a STOP). */
+static void rfid_i2c_bus_check(void)
+{
+    const gpio_config_t in_cfg = {
+        .pin_bit_mask = (1ULL << SDA_PIN) | (1ULL << SCL_PIN),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+    };
+    (void)gpio_config(&in_cfg);
+    esp_rom_delay_us(50);
+    const int sda = gpio_get_level(SDA_PIN);
+    const int scl = gpio_get_level(SCL_PIN);
+    ESP_LOGI(TAG, "I2C idle levels (external pull-ups only): SDA=%d SCL=%d", sda, scl);
+    (void)gpio_set_pull_mode(SDA_PIN, GPIO_PULLUP_ONLY);
+    (void)gpio_set_pull_mode(SCL_PIN, GPIO_PULLUP_ONLY);
+    esp_rom_delay_us(200);
+    ESP_LOGI(TAG,
+             "I2C idle levels with the internal pull-ups: SDA=%d SCL=%d",
+             gpio_get_level(SDA_PIN),
+             gpio_get_level(SCL_PIN));
+    if (0 == scl)
+    {
+        ESP_LOGE(TAG,
+                 "SCL (IO%d) is held low: a device on the bus is stuck or the line is shorted / not pulled up",
+                 SCL_PIN);
+        return;
+    }
+    if (0 != sda)
+    {
+        return;
+    }
+
+    ESP_LOGW(TAG, "SDA (IO%d) is held low, clocking the bus free", SDA_PIN);
+    (void)gpio_set_direction(SCL_PIN, GPIO_MODE_INPUT_OUTPUT_OD);
+    for (int i = 0; (i < 9) && (0 == gpio_get_level(SDA_PIN)); i++)
+    {
+        (void)gpio_set_level(SCL_PIN, 0);
+        esp_rom_delay_us(10);
+        (void)gpio_set_level(SCL_PIN, 1);
+        esp_rom_delay_us(10);
+    }
+    (void)gpio_set_direction(SDA_PIN, GPIO_MODE_INPUT_OUTPUT_OD); /* STOP: SDA low -> high while SCL is high. */
+    (void)gpio_set_level(SDA_PIN, 0);
+    esp_rom_delay_us(10);
+    (void)gpio_set_level(SDA_PIN, 1);
+    esp_rom_delay_us(10);
+    (void)gpio_set_direction(SDA_PIN, GPIO_MODE_INPUT);
+    (void)gpio_set_direction(SCL_PIN, GPIO_MODE_INPUT);
+    ESP_LOGI(TAG, "After the bus clear: SDA=%d SCL=%d", gpio_get_level(SDA_PIN), gpio_get_level(SCL_PIN));
+}
+
 void boot_rfid(void)
 {
-    esp_err_t err;
+    esp_err_t err = ESP_FAIL;
+    rfid_i2c_bus_check();
     ESP_LOGI(TAG, "init PN532 in I2C mode");
     ESP_ERROR_CHECK(pn532_new_driver_i2c(SDA_PIN, SCL_PIN, RESET_PIN, IRQ_PIN, I2C_NUM_0, &pn532_io));
-    do
+    for (uint8_t tries = 0U; (tries < RFID_INIT_TRIES) && (ESP_OK != err); tries++)
     {
         err = pn532_init(&pn532_io);
         if (err != ESP_OK)
@@ -27,20 +94,27 @@ void boot_rfid(void)
             pn532_release(&pn532_io);
             vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
-    } while (err != ESP_OK);
+    }
 
     ESP_LOGI(TAG, "get firmware version");
     uint32_t version_data = 0;
-    do
+    for (uint8_t tries = 0U; (tries < RFID_INIT_TRIES) && (ESP_OK == err); tries++)
     {
         err = pn532_get_firmware_version(&pn532_io, &version_data);
-        if (ESP_OK != err)
+        if (ESP_OK == err)
         {
-            ESP_LOGI(TAG, "Didn't find PN53x board");
-            pn532_reset(&pn532_io);
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            break;
         }
-    } while (ESP_OK != err);
+        ESP_LOGI(TAG, "Didn't find PN53x board");
+        pn532_reset(&pn532_io);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+    if (ESP_OK != err)
+    {
+        ESP_LOGE(TAG, "No PN532: cards disabled until restart");
+        pn532_release(&pn532_io); /* Also frees the I2C bus: the keypad then creates its own. */
+        return;
+    }
 
     // Log firmware infos
     ESP_LOGI(TAG, "Found chip PN5%x", (unsigned int)(version_data >> 24) & 0xFF);
@@ -57,14 +131,16 @@ void boot_rfid(void)
             vTaskDelay(pdMS_TO_TICKS(2000));
         }
     }
+    s_ready = true;
 }
 
 void rfid_task(void *pvParameter)
 {
     esp_err_t err;
-    if (uid_mutex == NULL)
+    if (!s_ready || (uid_mutex == NULL))
     {
-        ESP_LOGE(TAG, "UID mutex is not initialized");
+        ESP_LOGW(TAG, "No card reader, RFID task ends");
+        vTaskDelete(NULL);
         return;
     }
 
@@ -105,6 +181,7 @@ void rfid_task(void *pvParameter)
             ESP_LOGI(TAG, "UID Length: %d bytes", read_uid_length);
             ESP_LOGI(TAG, "UID Value:");
             ESP_LOG_BUFFER_HEX_LEVEL(TAG, read_uid, read_uid_length, ESP_LOG_INFO);
+            system_control_card(read_uid, read_uid_length); /* Unlock, unknown card, or add it in the admin menu. */
 
             err = pn532_in_list_passive_target(&pn532_io);
             if (err != ESP_OK)
@@ -160,125 +237,5 @@ void rfid_task(void *pvParameter)
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
         vTaskDelay(pdMS_TO_TICKS(10));
-    }
-}
-
-static void uid_action_when_uid_read(void)
-{
-    uint8_t current_mode_state = 0U;
-
-    if (xSemaphoreTake(device_mode.mode_mutex, portMAX_DELAY) != pdTRUE)
-    {
-        ESP_LOGI(RFID_TAG, "Error system mutex");
-        return;
-    }
-    current_mode_state = device_mode.mode_state;
-    xSemaphoreGive(device_mode.mode_mutex);
-
-    switch (current_mode_state)
-    {
-        case USER_ENTERING_PASSWORD:
-            ESP_LOGI(RFID_TAG, "Checking UID while user is entering password");
-            if (validate_uid(uid, uid_length, &uids_head) == 1)
-            {
-                ESP_LOGI(RFID_TAG, "UID is valid, opening lock");
-                device_mode.mode_update_state(&device_mode, USER_OPEN_LOCK, true);
-            }
-            else
-            {
-                ESP_LOGI(RFID_TAG, "UID is invalid");
-                device_mode.mode_update_state(&device_mode, USER_WRONG_PASSWORD, true);
-            }
-            break;
-        case ADMIN_ADD_UID:
-            /*Tạm thời chưa có UID cho ADMIN, có sẽ thêm sau*/
-            ESP_LOGI(RFID_TAG, "Adding UID mode");
-            if (add_uid_to_list(&uids_head, uid, uid_length) != NULL)
-            {
-                ESP_LOGI(RFID_TAG, "UID added successfully");
-            }
-            else
-            {
-                ESP_LOGI(RFID_TAG, "Failed to add UID");
-            }
-            break;
-        default:
-            break;
-    }
-}
-
-static void uid_action_when_no_uid_read(void)
-{
-    uint8_t current_mode_state = 0U;
-
-    if (xSemaphoreTake(device_mode.mode_mutex, portMAX_DELAY) != pdTRUE)
-    {
-        ESP_LOGI(RFID_TAG, "Error system mutex");
-        return;
-    }
-    current_mode_state = device_mode.mode_state;
-    xSemaphoreGive(device_mode.mode_mutex);
-
-    switch (current_mode_state)
-    {
-        case ADMIN_ADD_UID:
-            ESP_LOGI(RFID_TAG, "Adding UID mode");
-            break;
-        case ADMIN_DELETE_UID:
-            ESP_LOGI(RFID_TAG, "Deleting UID mode");
-            remove_uid_from_list(&uids_head, uid, uid_length);
-            device_mode.mode_update_state(&device_mode, ADMIN_LOGGED_IN, false);
-            break;
-        default:
-            break;
-    }
-}
-
-void uid_task(void *pvParameter)
-{
-    if (uid_mutex == NULL)
-    {
-        ESP_LOGE(TAG, "UID mutex is not initialized");
-        return;
-    }
-
-    while (1)
-    {
-        if (xSemaphoreTake(uid_mutex, pdMS_TO_TICKS(1000)) != pdTRUE)
-        {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
-        }
-
-        uint8_t current_uid[sizeof(uid)];
-        uint8_t current_uid_length = uid_length;
-        memcpy(current_uid, uid, sizeof(current_uid));
-
-        struct list_head     *pos;
-        uid_memory_storage_t *entry;
-
-        ESP_LOGI(RFID_TAG, "Current UID list:");
-        list_for_each(pos, &uids_head)
-        {
-            entry = list_entry(pos, uid_memory_storage_t, list);
-            ESP_LOGI(RFID_TAG, "UID: ");
-            ESP_LOG_BUFFER_HEX_LEVEL(RFID_TAG, entry->uid, entry->uid_length, ESP_LOG_INFO);
-        }
-
-        xSemaphoreGive(uid_mutex);
-
-        if (current_uid_length > 0)
-        {
-            ESP_LOGI(RFID_TAG, "Current UID: ");
-            ESP_LOG_BUFFER_HEX_LEVEL(RFID_TAG, current_uid, current_uid_length, ESP_LOG_INFO);
-            uid_action_when_uid_read();
-        }
-        else
-        {
-            ESP_LOGI(RFID_TAG, "No UID read yet.");
-            uid_action_when_no_uid_read();
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

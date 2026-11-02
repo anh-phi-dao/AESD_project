@@ -162,6 +162,46 @@ esp_err_t fingerprint_sensor_identify(uint16_t *p_page_id)
     return (AS608_ERR_NO_MATCH == code) ? ESP_ERR_NOT_FOUND : ESP_FAIL;
 }
 
+esp_err_t fingerprint_sensor_capture(uint8_t buffer_id)
+{
+    const uint8_t code = DEV_AS608_GenImg(FINGERPRINT_UART_PORT, s_address);
+    if (AS608_ERR_NO_FINGER == code)
+    {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (AS608_OK != code)
+    {
+        return ESP_FAIL;
+    }
+    return (0U == buffer_id) ? ESP_OK : fingerprint_image_to_buffer(buffer_id);
+}
+
+esp_err_t fingerprint_sensor_merge_store(uint16_t page_id)
+{
+    uint8_t page[2]   = {(uint8_t)(page_id >> 8), (uint8_t)(page_id & 0xFFU)};
+    uint8_t buffer_id = 1U;
+
+    if (AS608_OK != DEV_AS608_RegModel(FINGERPRINT_UART_PORT, s_address))
+    {
+        return ESP_FAIL;
+    }
+    return (AS608_OK == DEV_AS608_Store(FINGERPRINT_UART_PORT, s_address, &buffer_id, page)) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t fingerprint_sensor_search(uint8_t buffer_id, uint16_t *p_page_id)
+{
+    uint8_t start_page[2] = {0U, 0U};
+    uint8_t page_count[2] = {(uint8_t)(FINGERPRINT_LIBRARY_SIZE >> 8), (uint8_t)(FINGERPRINT_LIBRARY_SIZE & 0xFFU)};
+
+    const uint8_t code
+        = DEV_AS608_Search(FINGERPRINT_UART_PORT, s_address, &buffer_id, start_page, page_count, p_page_id);
+    if (AS608_OK == code)
+    {
+        return ESP_OK;
+    }
+    return (AS608_ERR_NO_MATCH == code) ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+}
+
 esp_err_t fingerprint_sensor_delete(uint16_t page_id, uint16_t count)
 {
     uint8_t page[2] = {(uint8_t)(page_id >> 8), (uint8_t)(page_id & 0xFFU)};

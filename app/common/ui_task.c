@@ -190,6 +190,11 @@ void ui_task_post_new_keys(uint16_t pressed_keys, uint16_t previous_keys)
     }
 }
 
+ui_service_instance_ctrl_t *ui_task_get_ui(void)
+{
+    return s_ui_ready ? &s_ui_ctrl : NULL;
+}
+
 #else /* UI_TASK_ENABLED */
 
 void boot_ui(void)
@@ -200,6 +205,11 @@ void ui_task_post_new_keys(uint16_t pressed_keys, uint16_t previous_keys)
 {
     (void)pressed_keys;
     (void)previous_keys;
+}
+
+struct st_ui_service_instance_ctrl *ui_task_get_ui(void)
+{
+    return NULL;
 }
 
 #endif /* UI_TASK_ENABLED */

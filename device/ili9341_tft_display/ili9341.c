@@ -206,23 +206,16 @@ static void ili9341_send_data(void *data, uint16_t length)
 }
 
 /***********************************************************************************************************************
- * Converts 16-bit pixel color values into a byte array, transmits them over SPI in data mode, and notifies LVGL that
- * flushing is complete.
+ * Transmits 16-bit pixel colors over SPI in data mode, and notifies LVGL that flushing is complete. The pixels are
+ * sent as they lie in memory, low byte first: with LV_COLOR_16_SWAP=1 that is the order the panel expects. The
+ * buffer goes to the SPI driver directly, so it must be DMA capable (lvgl_port allocates it so); no copy is made,
+ * which saves a 25 KB internal RAM buffer.
  **********************************************************************************************************************/
 static void ili9341_send_color(void *data, uint16_t length)
 {
     gpio_set_level(ili9341_handle.e_dc_pin, 1); /* Data mode */
 
-    static uint8_t Byte[12800 * 2];
-    uint16_t      *color_data = (uint16_t *)data; /* Cast void * to uint16_t * */
-    uint16_t       index      = 0;
-    for (uint16_t i = 0; i < length; i++)
-    {
-        Byte[index++] = color_data[i] & 0xFF;
-        Byte[index++] = (color_data[i] >> 8) & 0xFF;
-    }
-
-    BSP_spiWriteMultipleByte(*ili9341_handle.p_spi_Handle, Byte, length * 2); /* Send correct length */
+    BSP_spiWriteMultipleByte(*ili9341_handle.p_spi_Handle, (uint8_t *)data, (uint32_t)length * 2U);
 
     lv_disp_flush_ready(LastDriver);
 }

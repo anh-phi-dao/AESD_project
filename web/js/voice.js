@@ -11,6 +11,8 @@ const MAGIC_0 = 0x56; // 'V'
 const MAGIC_1 = 0x4d; // 'M'
 const VERSION = 1;
 const ASSEMBLY_TIMEOUT_MS = 30000;
+const DB_NAME = 'smartlock-voice';
+const DB_STORE = 'messages';
 
 // Returns the parsed chunk, or null when the bytes are not a valid version-1 chunk.
 export function parseVoiceChunk(bytes) {
@@ -127,6 +129,64 @@ export function pcm16ToWav(pcmBytes, sampleRate) {
   writeStr(36, 'data');
   v.setUint32(40, pcmBytes.length, true);
   return new Blob([header, pcmBytes], { type: 'audio/wav' });
+}
+
+// Guests' messages kept in the browser (IndexedDB), so the list survives a reload and messages the lock has since
+// replaced. Records: { id, ts, durationMs, receivedAt, heard, blob }, or a tombstone { id, deleted: true } for one
+// deleted here while the lock still has it. Falls back to memory when IndexedDB is unavailable (private mode).
+export class VoiceStore {
+  #db = null;
+  #mem = new Map();
+  #deviceId;
+
+  constructor(deviceId) {
+    this.#deviceId = deviceId;
+  }
+
+  async open() {
+    if (!('indexedDB' in window)) return;
+    try {
+      this.#db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE, { keyPath: 'key' });
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    } catch {
+      this.#db = null;
+    }
+  }
+
+  // Every record of this lock.
+  async all() {
+    if (!this.#db) return [...this.#mem.values()];
+    const rows = await this.#run('readonly', (s) => s.getAll());
+    return rows.filter((r) => r.deviceId === this.#deviceId);
+  }
+
+  async put(rec) {
+    const row = { ...rec, key: this.#key(rec.id), deviceId: this.#deviceId };
+    if (!this.#db) this.#mem.set(row.key, row);
+    else await this.#run('readwrite', (s) => s.put(row));
+  }
+
+  async remove(id) {
+    if (!this.#db) this.#mem.delete(this.#key(id));
+    else await this.#run('readwrite', (s) => s.delete(this.#key(id)));
+  }
+
+  #key(id) {
+    return `${this.#deviceId}:${id}`;
+  }
+
+  #run(mode, fn) {
+    return new Promise((resolve, reject) => {
+      const tx = this.#db.transaction(DB_STORE, mode);
+      const req = fn(tx.objectStore(DB_STORE));
+      tx.oncomplete = () => resolve(req.result);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
 }
 
 // Records from the microphone and returns 16 kHz mono PCM16 when stopped.

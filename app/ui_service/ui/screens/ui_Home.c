@@ -13,10 +13,6 @@ lv_obj_t * ui_HomePrompt = NULL;
 lv_obj_t * ui_HomeMessages = NULL;
 lv_obj_t * ui_HomeHint = NULL;
 lv_obj_t * ui_HomeHintText = NULL;
-lv_obj_t * ui_HomeWifi = NULL;
-lv_obj_t * ui_HomeWifiOff = NULL;
-lv_obj_t * ui_HomeBattery = NULL;
-lv_obj_t * ui_HomeBatteryPct = NULL;
 // event funtions
 
 // build funtions
@@ -32,7 +28,7 @@ void ui_Home_screen_init(void)
     lv_obj_set_width(ui_HomeTitle, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_HomeTitle, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_HomeTitle, 0);
-    lv_obj_set_y(ui_HomeTitle, -82);
+    lv_obj_set_y(ui_HomeTitle, -70);
     lv_obj_set_align(ui_HomeTitle, LV_ALIGN_CENTER);
     lv_label_set_text(ui_HomeTitle, "  SMART LOCK");
     lv_obj_set_style_text_color(ui_HomeTitle, lv_color_hex(0x2DB6A3), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -43,7 +39,7 @@ void ui_Home_screen_init(void)
     lv_obj_set_width(ui_HomeStatePanel, 200);
     lv_obj_set_height(ui_HomeStatePanel, 70);
     lv_obj_set_x(ui_HomeStatePanel, 0);
-    lv_obj_set_y(ui_HomeStatePanel, -22);
+    lv_obj_set_y(ui_HomeStatePanel, -20);
     lv_obj_set_align(ui_HomeStatePanel, LV_ALIGN_CENTER);
     lv_obj_clear_flag(ui_HomeStatePanel, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
     lv_obj_set_style_bg_color(ui_HomeStatePanel, lv_color_hex(0x1C2630), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -65,7 +61,7 @@ void ui_Home_screen_init(void)
     lv_obj_set_width(ui_HomePrompt, LV_SIZE_CONTENT);   /// 1
     lv_obj_set_height(ui_HomePrompt, LV_SIZE_CONTENT);    /// 1
     lv_obj_set_x(ui_HomePrompt, 0);
-    lv_obj_set_y(ui_HomePrompt, 32);
+    lv_obj_set_y(ui_HomePrompt, 34);
     lv_obj_set_align(ui_HomePrompt, LV_ALIGN_CENTER);
     lv_label_set_text(ui_HomePrompt, "Enter PIN or scan card/ fingerprint");
     lv_obj_set_style_text_color(ui_HomePrompt, lv_color_hex(0xE8ECEF), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -102,46 +98,6 @@ void ui_Home_screen_init(void)
     lv_obj_set_style_text_opa(ui_HomeHintText, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_HomeHintText, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_HomeWifi = lv_label_create(ui_Home);
-    lv_obj_set_width(ui_HomeWifi, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_HomeWifi, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_HomeWifi, 216);
-    lv_obj_set_y(ui_HomeWifi, 4);
-    lv_label_set_text(ui_HomeWifi, "");
-    lv_obj_set_style_text_color(ui_HomeWifi, lv_color_hex(0x8A96A0), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_HomeWifi, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_HomeWifi, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    ui_HomeWifiOff = lv_label_create(ui_Home);
-    lv_obj_set_width(ui_HomeWifiOff, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_HomeWifiOff, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_HomeWifiOff, 204);
-    lv_obj_set_y(ui_HomeWifiOff, 5);
-    lv_label_set_text(ui_HomeWifiOff, "");
-    lv_obj_set_style_text_color(ui_HomeWifiOff, lv_color_hex(0xE74C3C), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_HomeWifiOff, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_HomeWifiOff, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    ui_HomeBattery = lv_label_create(ui_Home);
-    lv_obj_set_width(ui_HomeBattery, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_HomeBattery, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_HomeBattery, 283);
-    lv_obj_set_y(ui_HomeBattery, 4);
-    lv_label_set_text(ui_HomeBattery, "");
-    lv_obj_set_style_text_color(ui_HomeBattery, lv_color_hex(0xE8ECEF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_HomeBattery, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_HomeBattery, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    ui_HomeBatteryPct = lv_label_create(ui_Home);
-    lv_obj_set_width(ui_HomeBatteryPct, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_HomeBatteryPct, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_x(ui_HomeBatteryPct, 244);
-    lv_obj_set_y(ui_HomeBatteryPct, 4);
-    lv_label_set_text(ui_HomeBatteryPct, "100%");
-    lv_obj_set_style_text_color(ui_HomeBatteryPct, lv_color_hex(0xE8ECEF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_HomeBatteryPct, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_HomeBatteryPct, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
-
 }
 
 void ui_Home_screen_destroy(void)
@@ -157,9 +113,5 @@ void ui_Home_screen_destroy(void)
     ui_HomeMessages = NULL;
     ui_HomeHint = NULL;
     ui_HomeHintText = NULL;
-    ui_HomeWifi = NULL;
-    ui_HomeWifiOff = NULL;
-    ui_HomeBattery = NULL;
-    ui_HomeBatteryPct = NULL;
 
 }
