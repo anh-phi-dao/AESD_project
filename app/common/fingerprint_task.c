@@ -97,8 +97,6 @@ static void fingerprint_task(void *pvParameter)
         {
             case SYSTEM_STATE_HOME:
             case SYSTEM_STATE_PIN_ENTRY:
-            case SYSTEM_STATE_LOCKOUT:
-            case SYSTEM_STATE_ADMIN_LOCKOUT:
                 fingerprint_identify();
                 break;
             case SYSTEM_STATE_ADMIN_SCAN:

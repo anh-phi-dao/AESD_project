@@ -20,7 +20,6 @@
 #define SYSTEM_LOGIN_IDLE_MS   20000U /* AdminLogin: back to Home without keys. */
 #define SYSTEM_ADMIN_IDLE_MS   30000U /* Admin screens: admin mode ends without keys. */
 #define SYSTEM_UNLOCK_MS       5000U  /* Door stays unlocked. */
-#define SYSTEM_LOCKOUT_MS      60000U
 #define SYSTEM_VOICE_MAX_MS    15000U
 #define SYSTEM_MSG_IDLE_MS     20000U /* Message list of a guest: back to Home without keys. */
 #define SYSTEM_MSG_SLOTS       5U     /* Messages from the owner kept for guests (web or recorded at the door). */
@@ -29,9 +28,14 @@
 #define SYSTEM_SCAN_TIMEOUT_MS 15000U /* Per scan: each good scan starts it again. */
 #define SYSTEM_SCAN_COUNT      3U     /* Scans of the same card / finger that add it. */
 #define SYSTEM_CARD_REPEAT_MS  1500U  /* The same card read again within this time is the same tap. */
-#define SYSTEM_MAX_TRIES       5U     /* Wrong PINs, unknown cards and unknown fingers together. */
+#define SYSTEM_MAX_TRIES       5U     /* Wrong tries of one method (PIN, card or finger) before that method locks. */
 #define SYSTEM_ADMIN_MAX_TRIES 3U
-#define SYSTEM_MAX_LOCKOUTS    10U /* Lockouts in a row, without a good code between them, lock until restart. */
+
+/* Lockouts of one method in a row, without a good unlock between them: each lasts longer, and the one after the last
+ * step locks that method until an admin logs in. The other methods keep working meanwhile. */
+#define SYSTEM_LOCKOUT_STEPS_MS {30000U, 60000U, 300000U, 900000U}
+#define SYSTEM_ADMIN_LOCKOUT_MS 60000U     /* Admin login: never for good, it is what ends the other lockouts. */
+#define SYSTEM_LOCK_FOREVER     UINT32_MAX /* Seconds left of a lockout that only an admin login ends. */
 #define SYSTEM_USER_COUNT      20U /* User IDs 1..20. A user has one PIN, and any number of cards and fingers. */
 #define SYSTEM_CARD_SLOTS      20U /* Cards stored, whoever they belong to. */
 #define SYSTEM_FINGER_SLOTS    40U /* Fingers stored; slot n is page n + 1 in the sensor. */
@@ -63,10 +67,8 @@ typedef enum e_system_state
 {
     SYSTEM_STATE_HOME = 0,      /* Home. */
     SYSTEM_STATE_PIN_ENTRY,     /* Input: ENTER PIN. */
-    SYSTEM_STATE_LOCKOUT,       /* Status: too many wrong PINs. */
     SYSTEM_STATE_VOICE,         /* Voice: recording a message. */
     SYSTEM_STATE_ADMIN_LOGIN,   /* AdminLogin: ID, then password. */
-    SYSTEM_STATE_ADMIN_LOCKOUT, /* Status: too many wrong admin logins. */
     SYSTEM_STATE_ADMIN_MENU,    /* Menu: ADMIN MENU. */
     SYSTEM_STATE_CRED_MENU,     /* Menu: PIN CODES / FINGERPRINTS / RFID CARDS. */
     SYSTEM_STATE_ADMIN_INPUT,   /* Input: new PIN, PIN again. */
@@ -162,6 +164,8 @@ typedef enum e_system_notice
     SYSTEM_NOTICE_SCAN_TIMEOUT,  /* The reader saw nothing; kind tells which. */
     SYSTEM_NOTICE_SCAN_MISMATCH, /* Another card than the first scan: start again. */
     SYSTEM_NOTICE_SCAN_BAD,      /* The sensor could not read the finger: scan again. */
+    SYSTEM_NOTICE_LOCKED, /* value: system_lock_target_t, value2: 1 it just locked, 0 it was used while locked.
+                           * system_view_t.notice_lock_s: seconds left, or SYSTEM_LOCK_FOREVER. */
 } system_notice_t;
 
 /* Everything the screen needs, copied by system_control_get_view(). Never holds a PIN or password: only lengths. */
@@ -171,7 +175,6 @@ typedef struct st_system_view
     system_cred_kind_t    kind; /* CRED_MENU, ADMIN_INPUT, ADMIN_SCAN. */
     system_admin_step_t   step; /* ADMIN_INPUT. */
     bool                  door_unlocked;
-    bool                  lock_forever;                      /* Lockout ends only with a restart. */
     bool                  login_on_password;                 /* ADMIN_LOGIN: the password field has the keys. */
     uint8_t               entry_len;                         /* Characters in the field that has the keys. */
     char                  entry_text[SYSTEM_ENTRY_MAX + 1U]; /* That field when it is not secret (IDs), else "". */
@@ -186,6 +189,7 @@ typedef struct st_system_view
     system_notice_t       notice;
     uint8_t               notice_value;
     uint8_t               notice_value2;
+    uint32_t              notice_lock_s;  /* NOTICE_LOCKED: seconds left, or SYSTEM_LOCK_FOREVER. */
     uint8_t               pending_user;   /* ADMIN_INPUT, ADMIN_SCAN, ADMIN_CONFIRM: the user picked. */
     uint8_t               pending_finger; /* Finger ADMIN_SCAN / ADMIN_CONFIRM: the finger picked. */
     uint8_t               scan_slot;      /* ADMIN_SCAN: slot it goes to; a finger is stored at page scan_slot + 1. */
@@ -204,10 +208,19 @@ typedef enum e_system_method
     SYSTEM_METHOD_FINGER,
 } system_method_t;
 
+/* What one lockout applies to: a method, or the admin login. Each has its own wrong tries and lockouts. */
+typedef enum e_system_lock_target
+{
+    SYSTEM_LOCK_PIN = SYSTEM_METHOD_PIN,
+    SYSTEM_LOCK_CARD = SYSTEM_METHOD_CARD,
+    SYSTEM_LOCK_FINGER = SYSTEM_METHOD_FINGER,
+    SYSTEM_LOCK_ADMIN,
+    SYSTEM_LOCK_COUNT
+} system_lock_target_t;
+
 typedef enum e_system_alert
 {
-    SYSTEM_ALERT_PIN_LOCKOUT = 0,
-    SYSTEM_ALERT_ADMIN_LOCKOUT,
+    SYSTEM_ALERT_LOCKOUT = 0, /* on_alert target and lock_s say which one and for how long. */
     SYSTEM_ALERT_UNKNOWN_CARD,
 } system_alert_t;
 
@@ -235,7 +248,9 @@ typedef struct st_system_credentials
 typedef struct st_system_control_hooks
 {
     void (*on_access)(system_method_t method, bool granted, uint8_t user); /* user: 0 when denied. */
-    void (*on_alert)(system_alert_t alert);
+    /* target, lock_s: ALERT_LOCKOUT only; lock_s in seconds, or SYSTEM_LOCK_FOREVER. */
+    void (*on_alert)(system_alert_t alert, system_lock_target_t target, uint32_t lock_s);
+    void (*on_locks_forever)(uint8_t mask);              /* Bit n: target n locked until an admin login. Keep it. */
     void (*on_door)(bool unlocked);                      /* Drive the solenoid. */
     void (*on_voice)(system_voice_t action, bool owner); /* owner: a message for guests, else one for the owner. */
     void (*on_play)(uint8_t slot, uint8_t token);        /* Play this message from the owner; token for play_done. */
@@ -277,8 +292,8 @@ void system_control_finger_scan_restart(void);
 /* Timeouts and countdowns. Call every 100 ms or so. */
 void system_control_tick(void);
 
-/* False while the keypad is locked out: keypad_task may stop scanning. */
-bool system_control_keys_enabled(void);
+/* At boot: the methods on_locks_forever reported locked until an admin login, so a restart does not end them. */
+void system_control_set_locks_forever(uint8_t mask);
 
 /* From the voice code: whether messages can be kept (SD card), and the owner's messages for guests, newest first.
  * Home shows the count; hold # plays the only one, or lists them. */

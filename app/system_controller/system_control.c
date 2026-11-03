@@ -25,24 +25,38 @@
 /* Hook calls decided under the lock and made after it, so a slow hook never holds up the keypad or the screen. */
 typedef struct st_system_effects
 {
-    bool            access;
-    system_method_t access_method;
-    bool            access_granted;
-    uint8_t         access_user;
-    bool            alert;
-    system_alert_t  alert_code;
-    bool            door;
-    bool            door_unlocked;
-    bool            voice;
-    system_voice_t  voice_action;
-    bool            voice_owner;
-    bool            play;
-    uint8_t         play_slot;
-    uint8_t         play_token;
-    bool            play_stop;
-    uint8_t         message_delete; /* Slot + 1 of the message for guests that goes, or 0. */
-    uint8_t         finger_delete;  /* Sensor page whose template goes, or 0. */
+    bool                 access;
+    system_method_t      access_method;
+    bool                 access_granted;
+    uint8_t              access_user;
+    bool                 alert;
+    system_alert_t       alert_code;
+    system_lock_target_t alert_target;
+    uint32_t             alert_lock_s;
+    bool                 locks_forever; /* The targets locked for good changed: tell on_locks_forever. */
+    uint8_t              locks_mask;
+    bool                 door;
+    bool                 door_unlocked;
+    bool                 voice;
+    system_voice_t       voice_action;
+    bool                 voice_owner;
+    bool                 play;
+    uint8_t              play_slot;
+    uint8_t              play_token;
+    bool                 play_stop;
+    uint8_t              message_delete; /* Slot + 1 of the message for guests that goes, or 0. */
+    uint8_t              finger_delete;  /* Sensor page whose template goes, or 0. */
 } system_effects_t;
+
+/* Wrong tries and lockouts of one system_lock_target_t. */
+typedef struct st_system_lock
+{
+    uint8_t    fails;    /* Wrong tries since its last lockout or the last good unlock. */
+    uint8_t    lockouts; /* Lockouts in a row: picks the next length; past the last step it is for good. */
+    bool       forever;  /* Only an admin login ends it. */
+    uint32_t   lock_ms;  /* Length of the running lockout, 0 when none. */
+    TickType_t lock_tick;
+} system_lock_t;
 
 typedef struct st_system_ctx
 {
@@ -74,10 +88,8 @@ typedef struct st_system_ctx
     uint8_t                scan_uid[SYSTEM_UID_MAX]; /* ADMIN_SCAN: card of the first scan. */
     uint8_t                scan_uid_len;
     bool                   door_unlocked;
-    uint8_t                fails; /* Wrong PINs, unknown cards and fingers, counted together. */
-    uint8_t                admin_fails;
-    uint8_t                lockouts; /* In a row, without a good code between them. */
-    bool                   lock_forever;
+    system_lock_t          locks[SYSTEM_LOCK_COUNT];
+    uint32_t               notice_lock_s; /* NOTICE_LOCKED: seconds left, or SYSTEM_LOCK_FOREVER. */
     uint8_t                message_count;
     system_message_t       messages[SYSTEM_MSG_SLOTS]; /* The owner's messages for guests, newest first. */
     bool                   voice_ready;                /* Messages can be kept (SD card). */
@@ -130,7 +142,11 @@ static void     system_scan_start(void);
 static void     system_delete_pending(system_effects_t *const p_fx);
 static bool     system_scan_good(void);
 static void     system_grant(system_method_t method, uint8_t user, system_effects_t *const p_fx);
-static void     system_lockout(bool admin, system_effects_t *const p_fx);
+static bool     system_fail(system_lock_target_t target, system_effects_t *const p_fx);
+static void     system_lockout(system_lock_target_t target, system_effects_t *const p_fx);
+static bool     system_locked(system_lock_target_t target);
+static uint32_t system_lock_left_s(system_lock_target_t target);
+static uint8_t  system_forever_mask(void);
 static uint32_t system_elapsed_ms(TickType_t since, TickType_t now);
 static bool     system_text_equal(const char *p_a, const char *p_b);
 static bool     system_pin_valid(const char *p_pin);
@@ -237,6 +253,11 @@ void system_control_card(const uint8_t *p_uid, uint8_t uid_length)
     {
         case SYSTEM_STATE_HOME:
         case SYSTEM_STATE_PIN_ENTRY:
+            /* Locked cards: even a registered one is refused, so the lockout means the same for everyone. */
+            if (system_locked(SYSTEM_LOCK_CARD))
+            {
+                break;
+            }
             if (0U != user)
             {
                 ESP_LOGI(SYSTEM_TAG, "Card accepted, user %u", user);
@@ -247,18 +268,6 @@ void system_control_card(const uint8_t *p_uid, uint8_t uid_length)
                 fx.alert      = true;
                 fx.alert_code = SYSTEM_ALERT_UNKNOWN_CARD;
                 system_deny(SYSTEM_METHOD_CARD, &fx);
-            }
-            break;
-
-        case SYSTEM_STATE_LOCKOUT:
-        case SYSTEM_STATE_ADMIN_LOCKOUT:
-            /* The lockout stops guessing on the keypad; a registered card still opens, and ends the lockout, so wrong
-             * PINs from a stranger cannot shut the owner out until a restart. Unknown cards are ignored here. */
-            if (0U != user)
-            {
-                ESP_LOGI(SYSTEM_TAG, "Card accepted during lockout, user %u", user);
-                s_sys.admin_fails = 0U;
-                system_grant(SYSTEM_METHOD_CARD, user, &fx);
             }
             break;
 
@@ -316,6 +325,10 @@ void system_control_finger(uint8_t page)
     {
         case SYSTEM_STATE_HOME:
         case SYSTEM_STATE_PIN_ENTRY:
+            if (system_locked(SYSTEM_LOCK_FINGER))
+            {
+                break;
+            }
             if (0U != user)
             {
                 ESP_LOGI(SYSTEM_TAG, "Finger accepted, user %u (%s)", user, s_finger_names[s_finger_id[page - 1U]]);
@@ -324,16 +337,6 @@ void system_control_finger(uint8_t page)
             else
             {
                 system_deny(SYSTEM_METHOD_FINGER, &fx);
-            }
-            break;
-
-        case SYSTEM_STATE_LOCKOUT:
-        case SYSTEM_STATE_ADMIN_LOCKOUT:
-            /* Like a registered card: opens and ends the lockout. */
-            if (0U != user)
-            {
-                s_sys.admin_fails = 0U;
-                system_grant(SYSTEM_METHOD_FINGER, user, &fx);
             }
             break;
 
@@ -432,6 +435,17 @@ void system_control_tick(void)
         fx.door_unlocked    = false;
     }
 
+    for (uint8_t i = 0U; i < (uint8_t)SYSTEM_LOCK_COUNT; i++)
+    {
+        system_lock_t *const p_lock = &s_sys.locks[i];
+        if ((0U != p_lock->lock_ms) && (system_elapsed_ms(p_lock->lock_tick, now) >= p_lock->lock_ms))
+        {
+            /* Its tries were reset when it locked; the count of lockouts stays, so the next one lasts longer. */
+            ESP_LOGI(SYSTEM_TAG, "Lockout %u ended", i);
+            p_lock->lock_ms = 0U;
+        }
+    }
+
     switch (s_sys.state)
     {
         case SYSTEM_STATE_PIN_ENTRY:
@@ -460,17 +474,6 @@ void system_control_tick(void)
                 ESP_LOGI(SYSTEM_TAG, "Admin mode timed out");
                 system_go_home();
                 system_notify(SYSTEM_NOTICE_ADMIN_TIMEOUT, 0U);
-            }
-            break;
-
-        case SYSTEM_STATE_LOCKOUT:
-        case SYSTEM_STATE_ADMIN_LOCKOUT:
-            if (!s_sys.lock_forever && (state_ms >= SYSTEM_LOCKOUT_MS))
-            {
-                /* A fresh set of tries: otherwise the first wrong code after a lockout would lock again. */
-                s_sys.fails       = 0U;
-                s_sys.admin_fails = 0U;
-                system_go_home();
             }
             break;
 
@@ -528,11 +531,21 @@ void system_control_tick(void)
     system_unlock_and_apply(&fx);
 }
 
-bool system_control_keys_enabled(void)
+void system_control_set_locks_forever(uint8_t mask)
 {
-    /* One word read: no lock needed for a hint. */
-    const system_state_t state = s_sys.state;
-    return (SYSTEM_STATE_LOCKOUT != state) && (SYSTEM_STATE_ADMIN_LOCKOUT != state);
+    if (!system_lock())
+    {
+        return;
+    }
+    for (uint8_t i = 0U; i < (uint8_t)SYSTEM_LOCK_ADMIN; i++) /* The admin login is never locked for good. */
+    {
+        s_sys.locks[i].forever = (0U != (mask & (1U << i)));
+        if (s_sys.locks[i].forever)
+        {
+            ESP_LOGW(SYSTEM_TAG, "Lockout %u kept from before the restart, until an admin login", i);
+        }
+    }
+    xSemaphoreGive(s_sys.mutex);
 }
 
 void system_control_set_messages(bool ready, const system_message_t *p_list, uint8_t count)
@@ -634,7 +647,6 @@ bool system_control_get_view(system_view_t *const p_view)
     p_view->kind              = s_sys.kind;
     p_view->step              = s_sys.step;
     p_view->door_unlocked     = s_sys.door_unlocked;
-    p_view->lock_forever      = s_sys.lock_forever;
     p_view->login_on_password = s_sys.login_on_password;
     p_view->entry_len         = s_sys.entry_len;
     if (shows_id)
@@ -652,6 +664,7 @@ bool system_control_get_view(system_view_t *const p_view)
     p_view->notice         = s_sys.notice;
     p_view->notice_value   = s_sys.notice_value;
     p_view->notice_value2  = s_sys.notice_value2;
+    p_view->notice_lock_s  = s_sys.notice_lock_s;
     p_view->pending_user   = s_sys.pending_user;
     p_view->pending_finger = s_sys.pending_finger;
     p_view->scan_slot      = s_sys.scan_slot;
@@ -830,12 +843,18 @@ static void system_handle_key(char key, bool hold, system_effects_t *const p_fx)
             }
             else if (hold && ('0' == key))
             {
-                system_enter(SYSTEM_STATE_ADMIN_LOGIN);
+                if (!system_locked(SYSTEM_LOCK_ADMIN))
+                {
+                    system_enter(SYSTEM_STATE_ADMIN_LOGIN);
+                }
             }
             else if (!hold && digit)
             {
-                system_enter(SYSTEM_STATE_PIN_ENTRY);
-                system_entry_edit(key);
+                if (!system_locked(SYSTEM_LOCK_PIN))
+                {
+                    system_enter(SYSTEM_STATE_PIN_ENTRY);
+                    system_entry_edit(key);
+                }
             }
             break;
 
@@ -846,7 +865,10 @@ static void system_handle_key(char key, bool hold, system_effects_t *const p_fx)
             }
             else if (hold && ('0' == key))
             {
-                system_enter(SYSTEM_STATE_ADMIN_LOGIN);
+                if (!system_locked(SYSTEM_LOCK_ADMIN))
+                {
+                    system_enter(SYSTEM_STATE_ADMIN_LOGIN);
+                }
             }
             else if (!hold && ('#' == key))
             {
@@ -1110,27 +1132,17 @@ static void system_check_pin(system_effects_t *const p_fx)
     system_deny(SYSTEM_METHOD_PIN, p_fx);
 }
 
-/* A wrong PIN, card or finger. All three use one count: switching method does not give fresh tries. */
+/* A wrong PIN, card or finger. Each method counts its own: too many locks only that method. */
 static void system_deny(system_method_t method, system_effects_t *const p_fx)
 {
-    static const char *const     s_names[] = {"PIN", "card", "finger"};
     static const system_notice_t s_notices[]
         = {SYSTEM_NOTICE_PIN_WRONG, SYSTEM_NOTICE_CARD_UNKNOWN, SYSTEM_NOTICE_FINGER_UNKNOWN};
 
-    if (s_sys.fails < UINT8_MAX)
-    {
-        s_sys.fails++;
-    }
-    ESP_LOGW(SYSTEM_TAG, "Wrong %s (%u / %u)", s_names[method], s_sys.fails, SYSTEM_MAX_TRIES);
     p_fx->access        = true;
     p_fx->access_method = method;
-    if (s_sys.fails >= SYSTEM_MAX_TRIES)
+    if (!system_fail((system_lock_target_t)method, p_fx))
     {
-        system_lockout(false, p_fx);
-    }
-    else
-    {
-        system_notify(s_notices[method], (uint8_t)(SYSTEM_MAX_TRIES - s_sys.fails));
+        system_notify(s_notices[method], (uint8_t)(SYSTEM_MAX_TRIES - s_sys.locks[method].fails));
     }
 }
 
@@ -1142,23 +1154,24 @@ static void system_check_admin(system_effects_t *const p_fx)
 
     if (ok)
     {
-        ESP_LOGI(SYSTEM_TAG, "Admin login");
-        s_sys.admin_fails = 0U;
-        s_sys.lockouts    = 0U;
+        /* The admin ends every lockout, also those for good: the only way back for a method locked that way. */
+        const uint8_t was_forever = system_forever_mask();
+        ESP_LOGI(SYSTEM_TAG, "Admin login%s", (0U != was_forever) ? ", lockouts for good ended" : "");
+        memset(s_sys.locks, 0, sizeof(s_sys.locks));
+        if (0U != was_forever)
+        {
+            p_fx->locks_forever = true;
+            p_fx->locks_mask    = 0U;
+        }
         system_enter(SYSTEM_STATE_ADMIN_MENU);
         return;
     }
 
-    s_sys.admin_fails++;
-    ESP_LOGW(SYSTEM_TAG, "Wrong admin login (%u / %u)", s_sys.admin_fails, SYSTEM_ADMIN_MAX_TRIES);
-    if (s_sys.admin_fails >= SYSTEM_ADMIN_MAX_TRIES)
-    {
-        system_lockout(true, p_fx);
-    }
-    else
+    if (!system_fail(SYSTEM_LOCK_ADMIN, p_fx))
     {
         system_enter(SYSTEM_STATE_ADMIN_LOGIN); /* Both fields empty, back to the ID. */
-        system_notify(SYSTEM_NOTICE_ADMIN_WRONG, (uint8_t)(SYSTEM_ADMIN_MAX_TRIES - s_sys.admin_fails));
+        system_notify(SYSTEM_NOTICE_ADMIN_WRONG,
+                      (uint8_t)(SYSTEM_ADMIN_MAX_TRIES - s_sys.locks[SYSTEM_LOCK_ADMIN].fails));
     }
 }
 
@@ -1630,9 +1643,14 @@ static bool system_scan_good(void)
 
 static void system_grant(system_method_t method, uint8_t user, system_effects_t *const p_fx)
 {
-    s_sys.fails          = 0U;
-    s_sys.lockouts       = 0U;
-    s_sys.lock_forever   = false;
+    /* A good unlock with any method clears the tries and the timed lockouts of all three methods; a lockout for good
+     * stays until an admin login, and the admin login keeps its own count. */
+    for (uint8_t i = 0U; i < (uint8_t)SYSTEM_LOCK_ADMIN; i++)
+    {
+        s_sys.locks[i].fails    = 0U;
+        s_sys.locks[i].lockouts = 0U;
+        s_sys.locks[i].lock_ms  = 0U;
+    }
     s_sys.door_unlocked  = true;
     s_sys.unlock_tick    = xTaskGetTickCount();
     p_fx->access         = true;
@@ -1645,22 +1663,124 @@ static void system_grant(system_method_t method, uint8_t user, system_effects_t 
     system_notify(SYSTEM_NOTICE_UNLOCKED, user);
 }
 
-static void system_lockout(bool admin, system_effects_t *const p_fx)
+/* One wrong try of target. True when it was the last one allowed: target is now locked and the screen says so. */
+static bool system_fail(system_lock_target_t target, system_effects_t *const p_fx)
 {
-    if (s_sys.lockouts < UINT8_MAX)
+    static const char *const s_names[SYSTEM_LOCK_COUNT] = {"PIN", "card", "finger", "admin login"};
+    system_lock_t *const     p_lock                     = &s_sys.locks[target];
+    const uint8_t max = (SYSTEM_LOCK_ADMIN == target) ? SYSTEM_ADMIN_MAX_TRIES : SYSTEM_MAX_TRIES;
+
+    if (p_lock->fails < UINT8_MAX)
     {
-        s_sys.lockouts++;
+        p_lock->fails++;
     }
-    s_sys.lock_forever = (s_sys.lockouts >= SYSTEM_MAX_LOCKOUTS);
-    ESP_LOGW(SYSTEM_TAG,
-             "%s lockout %u / %u%s",
-             admin ? "Admin" : "PIN",
-             s_sys.lockouts,
-             SYSTEM_MAX_LOCKOUTS,
-             s_sys.lock_forever ? ", locked until restart" : "");
-    p_fx->alert      = true;
-    p_fx->alert_code = admin ? SYSTEM_ALERT_ADMIN_LOCKOUT : SYSTEM_ALERT_PIN_LOCKOUT;
-    system_enter(admin ? SYSTEM_STATE_ADMIN_LOCKOUT : SYSTEM_STATE_LOCKOUT);
+    ESP_LOGW(SYSTEM_TAG, "Wrong %s (%u / %u)", s_names[target], p_lock->fails, max);
+    if (p_lock->fails < max)
+    {
+        return false;
+    }
+    system_lockout(target, p_fx);
+    return true;
+}
+
+/* Locks target alone: 30 s, 1 min, 5 min, 15 min for lockouts in a row, then for good (SYSTEM_LOCKOUT_STEPS_MS). The
+ * admin login always for SYSTEM_ADMIN_LOCKOUT_MS. */
+static void system_lockout(system_lock_target_t target, system_effects_t *const p_fx)
+{
+    static const uint32_t s_steps_ms[] = SYSTEM_LOCKOUT_STEPS_MS;
+    const uint8_t         steps        = (uint8_t)(sizeof(s_steps_ms) / sizeof(s_steps_ms[0]));
+    system_lock_t *const  p_lock       = &s_sys.locks[target];
+
+    p_lock->fails     = 0U; /* A fresh set of tries once it ends. */
+    p_lock->lock_tick = xTaskGetTickCount();
+    if (SYSTEM_LOCK_ADMIN == target)
+    {
+        p_lock->lock_ms = SYSTEM_ADMIN_LOCKOUT_MS;
+    }
+    else if (p_lock->lockouts < steps)
+    {
+        p_lock->lock_ms = s_steps_ms[p_lock->lockouts];
+        p_lock->lockouts++;
+    }
+    else
+    {
+        p_lock->lock_ms     = 0U;
+        p_lock->forever     = true;
+        p_fx->locks_forever = true;
+        p_fx->locks_mask    = system_forever_mask();
+    }
+
+    const uint32_t left_s = system_lock_left_s(target);
+    if (SYSTEM_LOCK_FOREVER == left_s)
+    {
+        ESP_LOGW(SYSTEM_TAG, "Lockout %u: locked until an admin login", (unsigned)target);
+    }
+    else
+    {
+        ESP_LOGW(SYSTEM_TAG,
+                 "Lockout %u: %u of %u, %lu s",
+                 (unsigned)target,
+                 (unsigned)p_lock->lockouts,
+                 (unsigned)steps,
+                 (unsigned long)left_s);
+    }
+    p_fx->alert        = true;
+    p_fx->alert_code   = SYSTEM_ALERT_LOCKOUT;
+    p_fx->alert_target = target;
+    p_fx->alert_lock_s = left_s;
+
+    if ((SYSTEM_LOCK_PIN == target) || (SYSTEM_LOCK_ADMIN == target))
+    {
+        system_go_home(); /* Leave the field that can no longer be used. */
+    }
+    s_sys.notice_lock_s = left_s;
+    system_notify2(SYSTEM_NOTICE_LOCKED, (uint8_t)target, 1U);
+}
+
+/* True while target is locked; the popup then says for how long. */
+static bool system_locked(system_lock_target_t target)
+{
+    const uint32_t left_s = system_lock_left_s(target);
+
+    if (0U == left_s)
+    {
+        return false;
+    }
+    s_sys.notice_lock_s = left_s;
+    system_notify2(SYSTEM_NOTICE_LOCKED, (uint8_t)target, 0U);
+    return true;
+}
+
+/* Seconds left of the lockout of target: 0 when it is not locked, SYSTEM_LOCK_FOREVER until an admin login. */
+static uint32_t system_lock_left_s(system_lock_target_t target)
+{
+    const system_lock_t *const p_lock = &s_sys.locks[target];
+
+    if (p_lock->forever)
+    {
+        return SYSTEM_LOCK_FOREVER;
+    }
+    if (0U == p_lock->lock_ms)
+    {
+        return 0U;
+    }
+    const uint32_t elapsed_ms = system_elapsed_ms(p_lock->lock_tick, xTaskGetTickCount());
+    return (elapsed_ms >= p_lock->lock_ms) ? 0U : (((p_lock->lock_ms - elapsed_ms) + 999U) / 1000U);
+}
+
+/* Bit n: target n locked for good. */
+static uint8_t system_forever_mask(void)
+{
+    uint8_t mask = 0U;
+
+    for (uint8_t i = 0U; i < (uint8_t)SYSTEM_LOCK_COUNT; i++)
+    {
+        if (s_sys.locks[i].forever)
+        {
+            mask |= (uint8_t)(1U << i);
+        }
+    }
+    return mask;
 }
 
 /***********************************************************************************************************************
@@ -1696,7 +1816,11 @@ static void system_unlock_and_apply(const system_effects_t *const p_fx)
     }
     if (p_fx->alert && (NULL != hooks.on_alert))
     {
-        hooks.on_alert(p_fx->alert_code);
+        hooks.on_alert(p_fx->alert_code, p_fx->alert_target, p_fx->alert_lock_s);
+    }
+    if (p_fx->locks_forever && (NULL != hooks.on_locks_forever))
+    {
+        hooks.on_locks_forever(p_fx->locks_mask);
     }
     if (p_fx->voice && (NULL != hooks.on_voice))
     {

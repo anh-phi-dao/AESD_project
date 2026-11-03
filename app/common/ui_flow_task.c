@@ -348,22 +348,6 @@ static void ui_flow_enter(const system_view_t *const p_view)
             break;
         }
 
-        case SYSTEM_STATE_LOCKOUT:
-        case SYSTEM_STATE_ADMIN_LOCKOUT:
-            ui_flow_set_status(LV_SYMBOL_WARNING,
-                               "SECURITY ALERT",
-                               (SYSTEM_STATE_ADMIN_LOCKOUT == p_view->state) ? "Too many wrong admin logins"
-                                                                             : "Too many failed attempts",
-                               p_view->lock_forever ? "Locked until restart"
-                                                    : "Keypad is disabled until the timer ends");
-            if (p_view->lock_forever)
-            {
-                lv_label_set_text(ui_StatusValue, "Contact the administrator");
-                lv_obj_set_width(ui_StatusFill, UI_FLOW_BAR_WIDTH);
-            }
-            screen = UI_SERVICE_SCREEN_STATUS;
-            break;
-
         default: /* SYSTEM_STATE_HOME */
             break;
     }
@@ -526,7 +510,7 @@ static void ui_flow_refresh_field(lv_obj_t *p_field, const system_view_t *const 
     memcpy(s_flow.shown_text, p_view->entry_text, sizeof(s_flow.shown_text));
 }
 
-/* Voice time, scan and lockout countdowns: redrawn once per second. */
+/* Voice time and scan countdowns: redrawn once per second. */
 static void ui_flow_refresh_countdown(const system_view_t *const p_view)
 {
     uint32_t total_ms;
@@ -541,14 +525,6 @@ static void ui_flow_refresh_countdown(const system_view_t *const p_view)
             break;
         case SYSTEM_STATE_ADMIN_SCAN:
             total_ms = SYSTEM_SCAN_TIMEOUT_MS;
-            break;
-        case SYSTEM_STATE_LOCKOUT:
-        case SYSTEM_STATE_ADMIN_LOCKOUT:
-            if (p_view->lock_forever)
-            {
-                return;
-            }
-            total_ms = SYSTEM_LOCKOUT_MS;
             break;
         default:
             return;
@@ -603,11 +579,6 @@ static void ui_flow_refresh_countdown(const system_view_t *const p_view)
         }
         break;
         default:
-            lv_label_set_text_fmt(ui_StatusValue,
-                                  "%s locked for %u s",
-                                  (SYSTEM_STATE_LOCKOUT == p_view->state) ? "Door" : "Admin",
-                                  (unsigned)seconds);
-            lv_obj_set_width(ui_StatusFill, (lv_coord_t)(((uint64_t)UI_FLOW_BAR_WIDTH * remain_ms) / total_ms));
             break;
     }
     ui_flow_unlock();
@@ -737,6 +708,38 @@ static void ui_flow_notice(const system_view_t *const p_view)
         case SYSTEM_NOTICE_SCAN_BAD:
             ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Finger not read", "Place it again");
             break;
+        case SYSTEM_NOTICE_LOCKED:
+        {
+            /* Only that method is locked; the popup says which, and how long, so the others are tried instead. */
+            static const char *const s_lock_titles[SYSTEM_LOCK_COUNT]
+                = {"PIN locked", "Cards locked", "Fingerprint locked", "Admin login locked"};
+            const unsigned long left_s = (unsigned long)p_view->notice_lock_s;
+            if (SYSTEM_LOCK_FOREVER == p_view->notice_lock_s)
+            {
+                (void)snprintf(detail, sizeof(detail), "Ask the admin to unlock it");
+            }
+            else if (left_s >= 60UL)
+            {
+                (void)snprintf(detail,
+                               sizeof(detail),
+                               "%s %lu:%02lu",
+                               (0U != p_view->notice_value2) ? "Too many tries, locked" : "Try again in",
+                               left_s / 60UL,
+                               left_s % 60UL);
+            }
+            else
+            {
+                (void)snprintf(detail,
+                               sizeof(detail),
+                               "%s %lu s",
+                               (0U != p_view->notice_value2) ? "Too many tries, locked" : "Try again in",
+                               left_s);
+            }
+            ui_flow_popup(UI_SERVICE_POPUP_ERROR,
+                          s_lock_titles[(value < (unsigned)SYSTEM_LOCK_COUNT) ? value : 0U],
+                          detail);
+            break;
+        }
         case SYSTEM_NOTICE_SCAN_TIMEOUT:
             (void)snprintf(detail, sizeof(detail), "No %s detected", s_kind_names[p_view->kind]);
             /* Same text for both: once the fingerprint driver calls system_control_finger_scanned(), a timeout really

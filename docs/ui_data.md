@@ -52,11 +52,13 @@ Cập nhật từ task khác phải giữ `ui_service_lock` / `ui_service_unlock
 | PIN / thẻ đúng | `Home`, `ui_HomeState` = `UNLOCKED` trong 5 s | SUCCESS `Welcome` / `Door unlocked` |
 | PIN sai | `Input`, ô trống | ERROR `Authentication failed` / `4 tries left` |
 | Thẻ / vân tay lạ (ở `Home` hoặc `Input`) | Giữ nguyên | ERROR `Authentication failed` / `Unknown card, 3 tries left` |
-| Sai 5 lần, tính chung PIN + thẻ + vân tay | `Status` (`SECURITY ALERT`, `Door locked for 60 s`) | |
-| Thẻ / vân tay đã đăng ký khi đang bị khóa | `Home`, mở cửa, hết khóa | SUCCESS `Welcome` / `Door unlocked` |
-| Hết thời gian khóa | `Home`, số lần thử được tính lại từ đầu | |
-| Mở cửa đúng (bất kỳ cách nào) | | Số lần sai về 0 |
-| Bị khóa 10 lần liên tiếp (không có lần mở đúng xen giữa) | `Status`, khóa đến khi khởi động lại | |
+| Sai 5 lần **một** phương thức (PIN, thẻ và vân tay đếm riêng) | `Home`; chỉ phương thức đó bị khóa, hai cái kia vẫn mở cửa được | ERROR `PIN locked` / `Too many tries, locked 30 s` |
+| Dùng phương thức đang bị khóa (nhấn số, quẹt thẻ, đặt ngón) | Giữ nguyên, kể cả thẻ / ngón đã đăng ký | ERROR `Cards locked` / `Try again in 4:12` |
+| Khóa lần thứ 1, 2, 3, 4 liên tiếp của cùng phương thức | | Khóa 30 s, 1 phút, 5 phút, 15 phút |
+| Khóa lần thứ 5 liên tiếp | Phương thức đó khóa hẳn, lưu NVS (khởi động lại vẫn khóa) | ERROR `Fingerprint locked` / `Ask the admin to unlock it` |
+| Hết thời gian khóa | Phương thức đó dùng lại được, 5 lần thử mới | |
+| Mở cửa đúng (bất kỳ cách nào) | | Số lần sai và khóa tạm thời của cả 3 phương thức về 0; khóa hẳn vẫn giữ |
+| Đăng nhập admin đúng | | Hết mọi khóa, kể cả khóa hẳn |
 | `Input` 10 s không có phím | `Home` | |
 | Giữ `*` 3 s ở `Home` | `Voice` (`ui_VoiceFill`, `ui_VoiceTime` chạy theo thời gian) | |
 | Nhấn `#` khi đang ghi, hoặc hết 15 s | `Status` (`MESSAGE RECORDED`, `1: Listen  2: Record again`, `Length: 7 s`, `#: Send  Hold *: Delete`) | Dưới 1 s: ERROR `Too short`; lỗi mic/SD: ERROR `Record failed` (về `Home`) |
@@ -75,7 +77,7 @@ Cập nhật từ task khác phải giữ `ui_service_lock` / `ui_service_unlock
 | Danh sách tin của khách 20 s không có phím | `Home` | |
 | Giữ `0` 3 s ở `Home` hoặc `Input` | `AdminLogin` (keypad ở ô ID; `#` sang ô mật khẩu) | |
 | Đăng nhập admin sai | `AdminLogin`, xóa 2 ô, về ô ID | ERROR `Wrong ID or password` / `2 tries left` |
-| Đăng nhập admin sai 3 lần | `Status` (`Admin locked for 60 s`) | |
+| Đăng nhập admin sai 3 lần | `Home`; chỉ đăng nhập admin bị khóa 60 s (không bao giờ khóa hẳn) | ERROR `Admin login locked` / `Too many tries, locked 1:00` |
 | Đăng nhập admin đúng | `Menu` (`ADMIN MENU`) | |
 | Ở `Menu` chọn 1 / 2 / 3 | `Menu`, đổi chữ (`PIN CODES`, `Stored: 3 / 20`, `1 Add / 2 Delete / 0 Back`) | |
 | Add (phím `1`) | `Menu` dạng danh sách `For which user?`: Dat, Phi, Tuan, User 4 … (PIN: chỉ người chưa có PIN; thẻ / vân tay: kèm số đang có, `Dat   (2 cards)`) | |
@@ -126,7 +128,6 @@ Giữ một phím ở chỗ phím đó không có lệnh giữ (bảng dưới) 
 | `1` / `2` / `0` | Menu PIN / vân tay / thẻ | Thêm / xóa / quay lại |
 | `2` / `8`, `#`, `*` | Danh sách admin | Lên / xuống (vòng lại), chọn, quay lại. Danh sách dài hơn 4 dòng có thanh cuộn bên phải |
 | `#` / `*` | Xác nhận xóa | Xóa / không xóa (về danh sách) |
-| | `Status` khóa | Không phím nào có tác dụng |
 
 ## 4. Firmware
 

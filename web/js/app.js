@@ -11,7 +11,7 @@ const TITLE = document.title;
 
 const METHOD_LABEL = { pin: 'Mã PIN', nfc: 'Thẻ NFC', button: 'Nút bên trong', key: 'Chìa cơ', fingerprint: 'Vân tay' };
 const ALERT_LABEL = {
-  pin_bruteforce: 'Nhập sai PIN nhiều lần',
+  pin_bruteforce: 'Thử sai nhiều lần', // PIN, card or fingerprint: the message says which one is locked
   unknown_card: 'Quẹt thẻ lạ',
   door_ajar: 'Cửa mở quá lâu',
   tamper: 'Phát hiện cạy phá',

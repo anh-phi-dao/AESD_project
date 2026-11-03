@@ -262,19 +262,7 @@ void keypad_task(void *pvParameter)
 #if USED_FREERTOS
     while (1)
     {
-        if (!system_control_keys_enabled())
-        {
-            /* Lockout: drop whatever was half pressed, so it does not act when the lockout ends. */
-            if (esp_timer_is_active(timer_handler) == true)
-            {
-                ESP_ERROR_CHECK(esp_timer_stop(timer_handler));
-            }
-            memset(&keypad_state, 0, sizeof(keypad_state));
-            audio_set_state(&audio_management_object, AUDIO_UNSED); /* The key that locked may still be beeping. */
-            vTaskDelay(pdMS_TO_TICKS(50));
-            continue;
-        }
-
+        /* Lockouts are per method (system_control): the keypad stays on, a locked PIN only shows a popup. */
         switch (keypad_state.state)
         {
             case BUTTON_RELEASE:
