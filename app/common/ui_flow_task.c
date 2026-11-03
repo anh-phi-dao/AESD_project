@@ -31,6 +31,7 @@
 #define UI_FLOW_TOPBAR_USER  "SMART LOCK"
 #define UI_FLOW_TOPBAR_ADMIN "ADMIN MODE"
 #define UI_FLOW_ICON_SIZE    8U
+#define UI_FLOW_PCT_SIZE     8U
 
 /***********************************************************************************************************************
  * Typedef definitions
@@ -59,6 +60,7 @@ typedef struct st_ui_flow_ctx
     int16_t                     shown_messages;
     uint32_t                    shown_msg_sig; /* MSG_LIST: the messages last drawn. */
     int8_t                      wifi_shown;    /* -1 not drawn yet, 0 off, 1 on. */
+    int16_t                     battery_shown; /* -1 not drawn yet, else the percent (or UI_FLOW_BATTERY_UNKNOWN). */
 } ui_flow_ctx_t;
 
 /***********************************************************************************************************************
@@ -87,6 +89,7 @@ static void     ui_flow_set_status(const char *p_icon, const char *p_title, cons
 static void     ui_flow_menu_set(
         const char *p_title, const char *p_r1, const char *p_r2, const char *p_r3, const char *p_r4);
 static void     ui_flow_wifi(TickType_t now);
+static void     ui_flow_battery(void);
 static bool     ui_flow_lock(void);
 static void     ui_flow_unlock(void);
 static void     ui_flow_show(ui_service_screen_t screen);
@@ -125,8 +128,9 @@ void boot_ui_flow(void)
         return;
     }
 
-    s_flow.p_ui       = p_ui;
-    s_flow.wifi_shown = -1;
+    s_flow.p_ui          = p_ui;
+    s_flow.wifi_shown    = -1;
+    s_flow.battery_shown = -1;
     if (pdPASS != xTaskCreate(ui_flow_task, "ui_flow", UI_FLOW_TASK_STACK, NULL, UI_FLOW_TASK_PRIORITY, NULL))
     {
         ESP_LOGE(UI_FLOW_TAG, "Failed to create the screen flow task");
@@ -180,6 +184,7 @@ static void ui_flow_task(void *pvParameter)
             }
         }
         ui_flow_wifi(xTaskGetTickCount());
+        ui_flow_battery();
         vTaskDelay(pdMS_TO_TICKS(UI_FLOW_TICK_MS));
     }
 }
@@ -1012,6 +1017,32 @@ static void ui_flow_wifi(TickType_t now)
     }
 }
 
+/* The battery icon and percent in the top bar, from ui_flow_set_battery(). */
+static void ui_flow_battery(void)
+{
+    const uint8_t percent = ui_flow_get_battery();
+    if (((int16_t)percent == s_flow.battery_shown) || !ui_flow_lock())
+    {
+        return;
+    }
+
+    char        text[UI_FLOW_PCT_SIZE] = "--%";
+    const char *p_icon                 = LV_SYMBOL_BATTERY_EMPTY;
+    if (UI_FLOW_BATTERY_UNKNOWN != percent)
+    {
+        (void)snprintf(text, sizeof(text), "%u%%", (unsigned)percent);
+        p_icon = (percent >= 90U)   ? LV_SYMBOL_BATTERY_FULL
+                 : (percent >= 65U) ? LV_SYMBOL_BATTERY_3
+                 : (percent >= 40U) ? LV_SYMBOL_BATTERY_2
+                 : (percent >= 15U) ? LV_SYMBOL_BATTERY_1
+                                    : LV_SYMBOL_BATTERY_EMPTY;
+    }
+    lv_label_set_text(ui_TopBarBattery, p_icon);
+    lv_label_set_text(ui_TopBarBatteryPct, text);
+    ui_flow_unlock();
+    s_flow.battery_shown = (int16_t)percent;
+}
+
 /***********************************************************************************************************************
  * Helpers
  **********************************************************************************************************************/
@@ -1062,3 +1093,19 @@ void boot_ui_flow(void)
 }
 
 #endif /* UI_TASK_ENABLED && UI_SERVICE_HAS_SQUARELINE */
+
+/***********************************************************************************************************************
+ * Battery value, also without a screen. One byte written by the battery code and read by the flow task: no lock.
+ **********************************************************************************************************************/
+
+static volatile uint8_t s_battery_percent = UI_FLOW_BATTERY_UNKNOWN;
+
+void ui_flow_set_battery(uint8_t percent)
+{
+    s_battery_percent = ((UI_FLOW_BATTERY_UNKNOWN != percent) && (percent > 100U)) ? 100U : percent;
+}
+
+uint8_t ui_flow_get_battery(void)
+{
+    return s_battery_percent;
+}
