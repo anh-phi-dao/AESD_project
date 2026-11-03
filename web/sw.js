@@ -2,7 +2,7 @@
 // Network first, so a new deploy shows up on the next load; the cache is only a fallback.
 // It never sees MQTT traffic: WebSockets bypass service workers.
 
-const CACHE = 'smartlock-v3';
+const CACHE = 'smartlock-v4';
 const SHELL = [
   './',
   'index.html',

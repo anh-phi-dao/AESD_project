@@ -14,7 +14,9 @@ const VOICE_INDEX_MAX = 20; // the lock keeps 10 guests' messages
 const VOICE_MS_MAX = 60000;
 const TEXT = new TextDecoder();
 
-const IN_TOPICS = ['status', 'event', 'alert', 'recent', 'history/resp', 'voice/out', 'voice/index'];
+const BATTERY_LEVELS = ['normal', 'low', 'critical'];
+
+const IN_TOPICS = ['status', 'event', 'alert', 'recent', 'history/resp', 'voice/out', 'voice/index', 'battery'];
 
 export class LockClient extends EventTarget {
   #client = null;
@@ -197,6 +199,12 @@ export class LockClient extends EventTarget {
         this.#emit('voiceindex', { items });
         break;
       }
+      case 'battery': {
+        // Retained: the last reading the lock sent, so it shows even while the lock is offline (check ts).
+        const battery = parseBattery(parseJson(bytes));
+        if (battery) this.#emit('battery', battery);
+        break;
+      }
     }
   }
 
@@ -220,6 +228,23 @@ function parseVoiceItem(x) {
     id: x.id,
     ts: Number.isInteger(x.ts) && x.ts >= 0 ? x.ts : 0,
     ms: Number.isInteger(x.ms) && x.ms >= 0 && x.ms <= VOICE_MS_MAX ? x.ms : 0,
+  };
+}
+
+// level 'unknown' (no INA219 reading) carries no numbers.
+function parseBattery(o) {
+  if (!o) return null;
+  const ts = Number.isInteger(o.ts) && o.ts >= 0 ? o.ts : 0;
+  if (!BATTERY_LEVELS.includes(o.level) || !Number.isInteger(o.pct) || o.pct < 0 || o.pct > 100) {
+    return { ts, level: 'unknown', pct: null, mv: null, ma: null, charging: false };
+  }
+  return {
+    ts,
+    level: o.level,
+    pct: o.pct,
+    mv: Number.isInteger(o.mv) ? o.mv : null,
+    ma: Number.isInteger(o.ma) ? o.ma : null,
+    charging: o.charging === true,
   };
 }
 

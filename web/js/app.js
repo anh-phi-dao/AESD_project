@@ -150,12 +150,28 @@ function showDashboard(on) {
     $('alerts').replaceChildren(emptyItem('Chưa có cảnh báo.'));
     $('voices').replaceChildren(emptyItem('Chưa có tin nhắn thoại.'));
     setPill($('device-status'), 'unknown', 'Thiết bị: chưa rõ');
+    setPill($('battery-status'), 'unknown', 'Pin: chưa rõ');
+    $('battery-status').title = '';
   }
 }
 
 function setPill(node, state, text) {
   node.dataset.state = state;
   node.textContent = text;
+}
+
+// Retained reading: shown even while the lock is offline, the tooltip says when it was taken.
+function onBattery(b) {
+  const node = $('battery-status');
+  if (b.level === 'unknown') {
+    setPill(node, 'unknown', 'Pin: chưa rõ');
+    node.title = b.ts ? `Khóa không đọc được pin (${fmtTime(b.ts)})` : '';
+    return;
+  }
+  setPill(node, b.level, `Pin ${b.pct}%${b.charging ? ' · đang sạc' : ''}`);
+  const volts = b.mv !== null ? `${(b.mv / 1000).toFixed(2)} V` : '';
+  const amps = b.ma !== null ? `${b.ma} mA` : '';
+  node.title = [volts, amps, b.ts ? `lúc ${fmtTime(b.ts)}` : ''].filter(Boolean).join(' · ');
 }
 
 // ---------- live data ----------
@@ -200,6 +216,7 @@ function wireClient(c) {
   c.addEventListener('recent', (e) => onRecent(e.detail));
   c.addEventListener('voice', (e) => onVoice(e.detail));
   c.addEventListener('voiceindex', (e) => onVoiceIndex(e.detail.items));
+  c.addEventListener('battery', (e) => onBattery(e.detail));
   c.addEventListener('error', (e) => console.warn('MQTT', e.detail.error));
 }
 

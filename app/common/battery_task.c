@@ -1,6 +1,8 @@
 #include "battery_task.h"
 
+#include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -10,6 +12,7 @@
 #include "ina219.h"
 #include "network_task.h"
 #include "nvs.h"
+#include "ui_flow_task.h"
 
 #define BATTERY_I2C_PORT       I2C_NUM_0
 #define BATTERY_PERIOD_MS      1000U
@@ -18,6 +21,8 @@
 #define BATTERY_SAVE_MS        300000U
 #define BATTERY_LOG_MS         30000U
 #define BATTERY_SHUNT_MOHM     100    /* The bus voltage is read after the shunt: add I * R back for the pack. */
+#define BATTERY_PUBLISH_MS     300000U /* Also without a change, so the web sees fresh voltage and current. */
+#define BATTERY_PAYLOAD_SIZE   128U
 
 #define BATTERY_NVS_NAMESPACE  "battery"
 #define BATTERY_NVS_KEY_CHARGE "charge_uah"
@@ -27,6 +32,8 @@ static bool    battery_open(void);
 static int64_t battery_load_charge(void);
 static void    battery_save_charge(int64_t charge_uah);
 static void    battery_report(const power_status_t *const p_old, const power_status_t *const p_new);
+static void    battery_publish_check(const power_status_t *const p_status);
+static bool    battery_publish(const power_status_t *const p_status, bool charging);
 
 static ina219_instance_ctrl_t s_ina219;
 static power_manager_t        s_pm;
@@ -34,6 +41,10 @@ static power_status_t         s_status;
 static bool                   s_status_valid  = false;
 static portMUX_TYPE           s_status_mux    = portMUX_INITIALIZER_UNLOCKED;
 static power_level_t          s_alerted_level = POWER_LEVEL_NORMAL; /* Worst level already sent as an alert. */
+static volatile bool          s_publish_now   = true;  /* Set by the MQTT task on each connection. */
+static power_status_t         s_sent;                  /* Last status published on BATTERY_TOPIC. */
+static bool                   s_sent_charging = false;
+static int64_t                s_sent_us       = 0;
 
 void boot_battery(void)
 {
@@ -58,6 +69,11 @@ bool battery_task_get_status(power_status_t *const p_out)
     return valid;
 }
 
+void battery_task_mqtt_connected(void)
+{
+    s_publish_now = true;
+}
+
 static void battery_task(void *pvParameter)
 {
     (void)pvParameter;
@@ -77,6 +93,7 @@ static void battery_task(void *pvParameter)
             opened = battery_open();
             if (!opened)
             {
+                battery_publish_check(&s_pm.status); /* UNKNOWN: the web shows no stale percent. */
                 vTaskDelay(pdMS_TO_TICKS(BATTERY_RETRY_MS));
                 continue;
             }
@@ -135,6 +152,10 @@ static void battery_task(void *pvParameter)
             s_status_valid = (POWER_LEVEL_UNKNOWN != s_pm.status.level);
             taskEXIT_CRITICAL(&s_status_mux);
 
+            /* Top bar: "--%" while the INA219 is not answering. */
+            ui_flow_set_battery((POWER_LEVEL_UNKNOWN != s_pm.status.level) ? s_pm.status.soc_pct
+                                                                          : UI_FLOW_BATTERY_UNKNOWN);
+
             battery_report(&old, &s_pm.status);
 
             /* Save often enough to survive a reset, rarely enough to spare the flash; right away when power fails. */
@@ -160,6 +181,7 @@ static void battery_task(void *pvParameter)
             }
         }
 
+        battery_publish_check(&s_pm.status);
         vTaskDelay(pdMS_TO_TICKS(BATTERY_PERIOD_MS));
     }
 }
@@ -250,4 +272,71 @@ static void battery_report(const power_status_t *const p_old, const power_status
                                   NULL);
         s_alerted_level = p_new->level;
     }
+}
+
+/* Retained BATTERY_TOPIC for the web: when the percent, the level or charging changes, every BATTERY_PUBLISH_MS,
+ * and after each broker connection. Until the broker answers, what changed stays pending. */
+static void battery_publish_check(const power_status_t *const p_status)
+{
+    const int64_t now_us   = esp_timer_get_time();
+    const bool    charging = (p_status->current_ma < -POWER_REST_MA);
+    const bool    forced   = s_publish_now;
+
+    if (!forced && (p_status->level == s_sent.level) && (p_status->soc_pct == s_sent.soc_pct)
+        && (charging == s_sent_charging) && ((now_us - s_sent_us) < ((int64_t)BATTERY_PUBLISH_MS * 1000)))
+    {
+        return;
+    }
+
+    s_publish_now = false; /* Before publishing: a connection made meanwhile sets it again. */
+    if (!battery_publish(p_status, charging))
+    {
+        s_publish_now = s_publish_now || forced;
+        return;
+    }
+    s_sent          = *p_status;
+    s_sent_charging = charging;
+    s_sent_us       = now_us;
+}
+
+/* {"ts":..,"level":"normal","pct":82,"mv":11850,"ma":120,"charging":false}, or only ts and level "unknown". */
+static bool battery_publish(const power_status_t *const p_status, bool charging)
+{
+    static const char *const s_level_names[] = {"unknown", "normal", "low", "critical"}; /* power_level_t order. */
+    mqtt_conn_instance_ctrl_t *const p_mqtt  = network_task_get_mqtt();
+    char                             payload[BATTERY_PAYLOAD_SIZE];
+    int                              len;
+
+    if (!mqtt_conn_is_connected(p_mqtt))
+    {
+        return false;
+    }
+
+    if ((POWER_LEVEL_UNKNOWN == p_status->level) || ((unsigned)p_status->level > (unsigned)POWER_LEVEL_CRITICAL))
+    {
+        len = snprintf(payload, sizeof(payload), "{\"ts\":%lu,\"level\":\"unknown\"}", (unsigned long)time(NULL));
+    }
+    else
+    {
+        len = snprintf(payload,
+                       sizeof(payload),
+                       "{\"ts\":%lu,\"level\":\"%s\",\"pct\":%u,\"mv\":%ld,\"ma\":%ld,\"charging\":%s}",
+                       (unsigned long)time(NULL),
+                       s_level_names[p_status->level],
+                       (unsigned)p_status->soc_pct,
+                       (long)p_status->pack_mv,
+                       (long)p_status->current_ma,
+                       charging ? "true" : "false");
+    }
+    if ((len < 0) || ((size_t)len >= sizeof(payload)))
+    {
+        return false;
+    }
+
+    if (APP_SUCCESS != mqtt_conn_publish(p_mqtt, BATTERY_TOPIC, payload, (size_t)len, 1U, true))
+    {
+        ESP_LOGW(BATTERY_TASK_TAG, "%s not published", BATTERY_TOPIC);
+        return false;
+    }
+    return true;
 }

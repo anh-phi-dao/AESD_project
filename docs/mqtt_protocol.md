@@ -30,6 +30,7 @@ SNTP trước khi ghi log.
 | `voice/index` | thiết bị → web | có | JSON danh sách tin của khách còn trên khóa |
 | `voice/req` | web → thiết bị | không | JSON xin gửi lại / xóa một tin của khách, tối đa 64 byte |
 | `voice/in` | web → thiết bị | không | Tin nhắn thoại chủ nhà gửi cho khách, tối đa 4112 byte mỗi chunk |
+| `battery` | thiết bị → web | có | JSON dung lượng pin, điện áp, dòng điện |
 
 ## 3. Payload
 
@@ -72,6 +73,21 @@ báo là hai dãy riêng, không bao giờ dùng lại (lưu trong NVS).
 
 `before_id`: lấy sự kiện có `id` nhỏ hơn, bỏ trống để lấy trang mới nhất. `limit`: 1 đến 50, mặc định 20. `req_id`:
 1 đến 16 ký tự `[A-Za-z0-9_-]`, được trả lại nguyên vẹn. Request sai định dạng hoặc quá 4 request/giây bị bỏ qua.
+
+`battery` (retained)
+
+```json
+{"ts": 1790000000, "level": "normal", "pct": 82, "mv": 11850, "ma": 120, "charging": false}
+{"ts": 1790000000, "level": "unknown"}
+```
+
+Đo bằng INA219 (shunt 0,1 Ω) trên pack 3S 2600 mAh. `pct`: 0 đến 100, đếm coulomb, chỉnh lại theo điện áp khi pack
+nghỉ. `mv`: điện áp pack. `ma`: dương khi xả, âm khi sạc. `charging`: `ma` dưới -80. `level`: `normal`, `low` (dưới
+20 %), `critical` (dưới 10 %), về `normal` khi lên 25 %. `unknown`: khóa không đọc được INA219, không có số liệu.
+
+Thiết bị publish khi `pct`, `level` hoặc `charging` đổi, 5 phút một lần, và mỗi lần kết nối broker. Retained, nên web
+vẫn thấy lần đo cuối khi khóa offline; xem `ts` để biết số liệu cũ hay mới. Pin yếu và sắp mất nguồn còn được báo qua
+`alert` (`low_battery`, `power_lost`).
 
 ## 4. Tin nhắn thoại
 

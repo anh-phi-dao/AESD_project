@@ -10,6 +10,7 @@ topic write lock/door01/recent
 topic write lock/door01/history/resp
 topic write lock/door01/voice/out
 topic write lock/door01/voice/index
+topic write lock/door01/battery
 topic read  lock/door01/history/req
 topic read  lock/door01/voice/in
 topic read  lock/door01/voice/req
@@ -23,6 +24,7 @@ topic read  lock/door01/recent
 topic read  lock/door01/history/resp
 topic read  lock/door01/voice/out
 topic read  lock/door01/voice/index
+topic read  lock/door01/battery
 topic write lock/door01/history/req
 topic write lock/door01/voice/in
 topic write lock/door01/voice/req

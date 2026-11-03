@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "network_task.h"
+#include "battery_task.h"
 #include "device_config.h"
 #include "door_sim.h"
 #include "event_log.h"
@@ -197,5 +198,6 @@ static void network_mqtt_state(mqtt_conn_state_t state, void *p_user_ctx)
     if (MQTT_CONN_STATE_CONNECTED == state)
     {
         voice_task_mqtt_connected();
+        battery_task_mqtt_connected();
     }
 }
