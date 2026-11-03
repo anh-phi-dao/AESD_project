@@ -37,8 +37,8 @@ Cập nhật từ task khác phải giữ `ui_service_lock` / `ui_service_unlock
 | `Status` | `ui_StatusHintText` | `Hold * to cancel` | `Use admin or contact security` |
 | `Overlay` → TopBar | `ui_TopBarText` | `SMART LOCK` | `ADMIN MODE` khi đang ở admin |
 | `Overlay` → TopBar | `ui_TopBarWifiOff` | Dấu X đỏ | `LV_SYMBOL_CLOSE` khi mất WiFi, `""` khi có WiFi (nguồn: `network_manager`) |
-| `Overlay` → TopBar | `ui_TopBarBattery` | `LV_SYMBOL_BATTERY_FULL` | `_3` / `_2` / `_1` / `_EMPTY` (chưa có phần đo pin) |
-| `Overlay` → TopBar | `ui_TopBarBatteryPct` | `100%` | `<n>%` |
+| `Overlay` → TopBar | `ui_TopBarBattery` | `LV_SYMBOL_BATTERY_FULL` | Theo biến pin (mục 6): `FULL` ≥ 90 %, `_3` ≥ 65 %, `_2` ≥ 40 %, `_1` ≥ 15 %, còn lại hoặc chưa đo `_EMPTY` |
+| `Overlay` → TopBar | `ui_TopBarBatteryPct` | `100%` | `<n>%` theo biến pin, `--%` khi chưa đo |
 | `Overlay` → Popup | `ui_Popup`, `ui_PopupIcon`, `ui_PopupTitle`, `ui_PopupDetail` | `Authentication failed` / `3 tries left` | Chỉ đổi qua `ui_service_popup()` |
 
 Để ẩn thanh tiến độ hoặc dòng đếm khi không dùng: `lv_obj_add_flag(ui_StatusTrack, LV_OBJ_FLAG_HIDDEN)` (và
@@ -164,3 +164,36 @@ CARD,0,2,04A1B2C3
 FINGER,0,1,6        # ô 0, Dat, Right index
 ```
 File bản 1 (một thẻ / một ngón mỗi user) vẫn đọc được: ngón tay cũ hiện là `Finger`. Lần lưu sau sẽ ghi bản 2.
+
+## 6. Biến pin (cho phần đo pin)
+
+Phần đo pin chưa có. Màn hình chỉ hiển thị một biến; ai làm phần đo pin chỉ cần ghi vào biến này, không cần đụng tới LVGL
+hay `ui_service_lock`.
+
+| Hàm (`app/common/ui_flow_task.h`) | Ý nghĩa |
+|---|---|
+| `ui_flow_set_battery(uint8_t percent)` | Đặt % pin, `0`–`100` (lớn hơn 100 tính là 100). `UI_FLOW_BATTERY_UNKNOWN` (`0xFF`): chưa đo được |
+| `ui_flow_get_battery()` | Đọc lại giá trị vừa đặt (ví dụ để gửi lên web) |
+
+- Gọi từ task nào cũng được, lúc nào cũng được, không cần khóa. Màn hình vẽ lại trong vòng `UI_FLOW_TICK_MS` (100 ms),
+  chỉ khi giá trị đổi.
+- Chưa ai gọi thì thanh trên cùng hiện icon pin rỗng và `--%`.
+- Giá trị nên được lọc trước khi đặt (trung bình vài lần đọc ADC), để icon không nhảy qua lại ở ngưỡng.
+- Pin yếu: ngoài việc đặt %, phần đo pin tự gửi cảnh báo `EVENT_LOG_ALERT_LOW_BATTERY` (`low_battery`, web hiện
+  "Pin yếu"), mỗi lần xuống dưới ngưỡng chỉ gửi một lần.
+
+Ví dụ một task đo pin:
+
+```c
+#include "ui_flow_task.h"
+
+static void battery_task(void *pvParameter)
+{
+    while (1)
+    {
+        const uint8_t percent = battery_read_percent(); /* Phần của người làm đo pin: ADC -> %. */
+        ui_flow_set_battery(percent);
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+}
+```
