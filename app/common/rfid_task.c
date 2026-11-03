@@ -1,5 +1,7 @@
 #include "rfid_task.h"
 
+#include <string.h>
+
 #include "esp_rom_sys.h"
 
 #define SCL_PIN   7
