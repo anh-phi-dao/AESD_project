@@ -25,3 +25,9 @@ config/certs/
 # SquareLine Studio backups and caches (design/)
 design/**/backup/
 design/**/cache/
+
+# Telegram bridge: bot token, broker password, ids already sent
+telegram/config.json
+telegram/state.json*
+telegram/.venv/
+__pycache__/

@@ -28,3 +28,9 @@ topic read  lock/door01/battery
 topic write lock/door01/history/req
 topic write lock/door01/voice/in
 topic write lock/door01/voice/req
+
+# ---- Telegram bridge (telegram/), read-only: it forwards alerts, events and guests' voice messages ----
+user bridge_door01
+topic read  lock/door01/alert
+topic read  lock/door01/event
+topic read  lock/door01/voice/out

@@ -1,0 +1,12 @@
+{
+  "broker_url": "mqtts://o817ff06.ala.asia-southeast1.emqxsl.com:8883",
+  "username": "bridge_door01",
+  "password": "broker-password-of-the-bridge-account",
+  "device_id": "door01",
+  "bot_token": "123456789:token-from-BotFather",
+  "chat_ids": [123456789],
+  "utc_offset_hours": 7,
+  "send_alerts": true,
+  "send_access": true,
+  "send_voice": true
+}

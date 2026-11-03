@@ -46,11 +46,13 @@ không biết. `id` tăng dần, dùng để phân trang.
 `alert`
 
 ```json
-{"id": 88, "ts": 1790000123, "level": "critical", "code": "pin_bruteforce", "msg": "Sai PIN 5 lần liên tiếp"}
+{"id": 88, "ts": 1790000123, "level": "warning", "code": "pin_bruteforce", "msg": "Too many wrong tries: PIN locked for 30 s, the other methods still work"}
 ```
 
-`level`: `info`, `warning`, `critical`. `code`: `pin_bruteforce`, `unknown_card`, `door_ajar`, `tamper`, `low_battery`,
-`power_lost`. `msg` tùy chọn. Cảnh báo `warning` / `critical` gửi thêm qua Telegram bot.
+`level`: `info`, `warning`, `critical`. `code`: `pin_bruteforce` (sai quá nhiều lần với PIN, thẻ, vân tay hoặc
+đăng nhập admin; `msg` nói cái nào bị khóa và bao lâu, `critical` khi khóa hẳn), `unknown_card`, `door_ajar`, `tamper`, `low_battery`,
+`power_lost`. `msg` tùy chọn. Cảnh báo `warning` / `critical` gửi thêm qua bot Telegram (`telegram/`, đọc `alert`,
+`event` và `voice/out` bằng tài khoản chỉ đọc).
 
 `recent`
 

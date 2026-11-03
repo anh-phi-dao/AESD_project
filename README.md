@@ -19,7 +19,7 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 | Lịch sử gần nhất (`app/event_log`) | Xong: 20 sự kiện + 10 cảnh báo, lưu NVS, giữ qua khởi động lại. Log đầy đủ chờ thẻ SD |
 | Cầu nối MQTT (`app/remote_service`) | Xong: `event`, `alert`, `recent` (retained, xem được khi khóa offline), trả lời `history/req` |
 | Giả lập phần cứng (`app/door_sim`) | Xong, **chỉ cho board dev, tắt mặc định**: nút BOOT + lệnh `sim` trên serial |
-| Telegram bot | Chưa làm |
+| Telegram bot (`telegram/`) | Xong: chương trình Python riêng nghe MQTT, gửi cảnh báo, ai mở cửa và tin thoại của khách; chỉ gửi, không nhận lệnh |
 | Lưu log ra vào lên thẻ SD | Chưa làm |
 | Tin nhắn thoại trên firmware (INMP441, loa) | Chưa làm; web đã sẵn sàng |
 | Màn hình TFT ILI9341 + LVGL (`device/ili9341_tft_display`, `middleware/lvgl_port`, `app/ui_service`) | Đã có giao diện SquareLine (một project: 6 màn hình + popup, gồm cả admin). Phím chạy theo màn hình: `system_control` quyết định (PIN, thẻ, khóa tạm, admin, ghi âm), `ui_flow_task` chỉ hiển thị ([docs/ui_data.md](docs/ui_data.md)) |
@@ -53,6 +53,7 @@ AESD_project/
 │       ├── lock-client.js         Thư viện MQTT chỉ xem (không đụng DOM)
 │       ├── voice.js               Đóng gói/ghép chunk thoại, ghi âm → PCM 16 kHz
 │       └── app.js                 Giao diện
+├── telegram/   NEW  Bot Telegram: nghe MQTT, gửi cảnh báo / ai mở cửa / tin thoại (Python)
 ├── design/   NEW  Hai project SquareLine Studio (người dùng, admin)
 ├── broker/mosquitto/   NEW  Cấu hình Mosquitto tự host + ACL mẫu
 ├── config/    NEW  Mẫu credential; file thật bị gitignore

@@ -58,6 +58,7 @@ Access Control → Authorization, cho từng username:
 | `door01` | `lock/door01/history/req`, `lock/door01/voice/in`, `lock/door01/voice/req` | Subscribe | Allow |
 | `owner_door01` | `lock/door01/#` | Subscribe | Allow |
 | `owner_door01` | `lock/door01/history/req`, `lock/door01/voice/in`, `lock/door01/voice/req` | Publish | Allow |
+| `bridge_door01` | `lock/door01/#` | Subscribe | Allow (bot Telegram, chỉ đọc: [telegram/README.md](../telegram/README.md)) |
 
 EMQX xét quy tắc từ trên xuống, gặp quy tắc khớp đầu tiên là dừng. Một quy tắc `#` Deny đặt **trên** các quy tắc Allow
 sẽ chặn hết. Muốn chặn phần còn lại thì đặt nó ở cuối, rồi thử lại web và thiết bị. Thiếu quyền thì web vẫn không mở
@@ -72,8 +73,8 @@ Android (Chrome): menu ⋮ → Cài đặt ứng dụng. iPhone (Safari): Chia s
 Mạng 4G có thể chặn cổng 8084: trang tải được nhưng đăng nhập báo "Broker không phản hồi". Khi demo dùng WiFi hoặc hotspot nhà
 mạng khác. Muốn chạy mọi mạng thì cần broker hoặc proxy nhận WebSocket ở cổng 443.
 
-Web chỉ nhận cảnh báo khi app đang mở. Mở lại thì trang báo các cảnh báo đã lỡ. Thông báo nền sẽ đi qua Telegram bot
-hoặc ntfy (việc tiếp theo).
+Web chỉ nhận cảnh báo khi app đang mở. Mở lại thì trang báo các cảnh báo đã lỡ. Thông báo nền đi qua bot Telegram
+([telegram/README.md](../telegram/README.md)).
 
 ## 6. Bảo mật
 
