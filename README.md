@@ -42,14 +42,12 @@ AESD_project/
 │   ├── remote_service/  NEW  Một task publish event/alert/recent, trả lời history/req
 │   ├── door_sim/        NEW  Giả lập keypad/NFC/cảm biến cho board dev (nút BOOT, lệnh "sim")
 │   ├── ui_service/      NEW  Màn hình: nạp giao diện SquareLine trong ui/, chuyển màn hình, popup, nhận phím keypad
-│   ├── lock_service/ ...     (chưa có code)
 ├── device/                   Driver phần cứng (pcf8574, keypad, ili9341_tft_display, ...)
 ├── middleware/
 │   ├── mqtt_client/   NEW  Bọc esp-mqtt: TLS, Last Will, allowlist topic, ghép payload lớn
 │   ├── lvgl_port/     NEW  Chạy LVGL 8.3 trên FreeRTOS: tick, buffer DMA, task, mutex, keypad
 │   └── ...
 ├── util/                     app_err_t, err_map
-├── third_party/   NEW  Thư viện ngoài (hiện trống, giữ bằng .gitkeep)
 ├── web/   NEW  Trang web tĩnh: HTML + mqtt.js
 │   └── js/
 │       ├── lock-client.js         Thư viện MQTT chỉ xem (không đụng DOM)
@@ -91,7 +89,6 @@ AESD_project/
    `CMakeCache.txt directory ... is different`, xóa thư mục `build/` rồi build lại.
 4. **Credential không nằm trong code, `sdkconfig` hay git.** Mỗi người tự tạo
    `config/device_config.csv` từ file mẫu rồi nạp vào board (xem [Demo nhanh](#demo-nhanh)).
-5. **Thư mục `third_party/`** được giữ bằng `.gitkeep`. Nếu thiếu thư mục này, CMake báo lỗi ngay.
 
 ---
 
@@ -194,7 +191,6 @@ Khi demo ở chỗ có WiFi khác: sửa CSV, chạy lại bước 2. Không c�
 ### Lỗi thường gặp
 
 | Build: `CMakeCache.txt directory ... is different` -> Xóa thư mục `build/`, build lại |
-| Build: `EXTRA_COMPONENT_DIRS doesn't exist ... third_party` -> Tạo thư mục `third_party/` |
 | Nạp credential: `Partition does not exist` -> Chưa nạp firmware mới: `idf.py -p COM5 erase-flash flash` |
 | `access point not found` -> Sai SSID, hoặc WiFi 5 GHz |
 | Có `Got IP` nhưng lặp `Still waiting for SNTP time sync` -> Mạng chặn NTP: đổi sang hotspot điện thoại |
