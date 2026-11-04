@@ -40,7 +40,8 @@ Chạy trong ESP-IDF PowerShell, tại thư mục gốc repo.
    trực tuyến. Rút nguồn board thì khoảng 45 s sau chuyển sang ngoại tuyến. Muốn có dữ liệu lịch sử thì bật bộ giả lập
    rồi nhấn BOOT hoặc gõ `sim seed 10` trong monitor (xem README).
 
-Đổi WiFi: sửa CSV rồi chạy lại bước 3, không cần build lại. Dùng từ xa: xem [deploy_web.md](deploy_web.md).
+Đổi WiFi: sửa CSV rồi chạy lại bước 3, không cần build lại. Mã tạm cho khách: thêm `--new-temp-secret` ở bước 3
+(xem [temp_code.md](temp_code.md)). Dùng từ xa: xem [deploy_web.md](deploy_web.md).
 
 ## 3. Broker tự host
 

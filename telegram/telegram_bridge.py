@@ -66,6 +66,7 @@ ALERT_LABEL = {
     "power_lost": "Mất nguồn",
 }
 ALERT_ICON = {"critical": "🚨", "warning": "⚠️"}
+USER_LABEL = {"Temp code": "Khách (mã tạm)"}  # ASCII names of the lock, said in Vietnamese here.
 
 
 # ------------------------------------------------------------------------------------------------ payloads
@@ -171,6 +172,7 @@ def format_access(event, device_id, utc_offset_hours):
     if event.get("result") != "granted":
         return None
     user = event.get("user") if isinstance(event.get("user"), str) and event.get("user") else "Ai đó"
+    user = USER_LABEL.get(user, user)
     method = event.get("method") if isinstance(event.get("method"), str) else "unknown"
     return (f"🔓 {user[:64]} đã mở cửa bằng {METHOD_LABEL.get(method, method)}\n"
             f"{fmt_time(event.get('ts'), utc_offset_hours)} · {device_id}")

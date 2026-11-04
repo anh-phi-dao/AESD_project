@@ -74,6 +74,27 @@
         <ul class="list" id="live"><li class="empty">Chưa có hoạt động từ khi mở trang.</li></ul>
       </section>
 
+      <section class="card">
+        <h2>Mã tạm cho khách</h2>
+        <p class="hint">Mã 8 số, khách nhập trên bàn phím của khóa rồi nhấn #. Dùng được nhiều lần trong 30 phút. Mã được tính ngay trên máy này, không gửi gì lên mạng.</p>
+        <form id="temp-setup" class="temp-setup" autocomplete="off" hidden>
+          <label>Bí mật mã tạm (tmp_secret của khóa, 32 ký tự)
+            <input name="secret" required pattern="[0-9a-fA-F]{32}" spellcheck="false" autocapitalize="off">
+          </label>
+          <button type="submit" class="btn">Lưu trên máy này</button>
+        </form>
+        <div id="temp-ready" class="temp-ready" hidden>
+          <button type="button" class="btn" id="temp-make">Tạo mã tạm (30 phút)</button>
+          <div class="temp-result" id="temp-result" hidden>
+            <output class="temp-code" id="temp-code"></output>
+            <button type="button" class="btn-ghost" id="temp-copy">Sao chép</button>
+            <p class="hint" id="temp-until"></p>
+          </div>
+          <button type="button" class="btn-ghost" id="temp-forget">Đổi bí mật</button>
+        </div>
+        <p class="error" id="temp-error" role="alert"></p>
+      </section>
+
       <section class="card wide">
         <div class="card-head">
           <h2>Lịch sử ra vào</h2>

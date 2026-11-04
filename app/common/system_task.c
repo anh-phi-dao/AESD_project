@@ -6,6 +6,7 @@
 #include "network_task.h"
 #include "nvs.h"
 #include "solenoid_lock.h"
+#include "temp_code.h"
 #include "voice_task.h"
 
 #define SYSTEM_NVS_NAMESPACE "system"
@@ -17,6 +18,7 @@ static void    system_on_alert(system_alert_t alert, system_lock_target_t target
 static void    system_on_locks_forever(uint8_t mask);
 static uint8_t system_load_locks_forever(void);
 static void    system_on_door(bool unlocked);
+static system_temp_code_t system_check_temp_code(const char *p_code);
 static void system_on_voice(system_voice_t action, bool owner);
 
 static const system_control_hooks_t s_hooks = {
@@ -29,6 +31,7 @@ static const system_control_hooks_t s_hooks = {
     .on_play_stop      = voice_task_play_stop,
     .on_message_delete = voice_task_delete_owner,
     .on_finger_delete  = fingerprint_task_request_delete,
+    .check_temp_code   = system_check_temp_code,
 };
 
 void boot_system_control(void)
@@ -44,6 +47,10 @@ void boot_system_control(void)
     }
     /* A method locked until an admin login stays locked across a restart: pulling the power is no way around it. */
     system_control_set_locks_forever(system_load_locks_forever());
+    if (!temp_code_self_test())
+    {
+        ESP_LOGE(SYSTEM_CONTROL_TAG, "Temporary code self-test failed: codes from the web page will not match");
+    }
     ESP_LOGI(SYSTEM_CONTROL_TAG, "System control initialized successfully");
 }
 
@@ -149,6 +156,20 @@ static void system_on_alert(system_alert_t alert, system_lock_target_t target, u
     if (APP_SUCCESS != ret)
     {
         ESP_LOGW(SYSTEM_CONTROL_TAG, "event_log_add_alert failed with application error: %d", ret);
+    }
+}
+
+/* Under the system_control lock: temp_code_check() only computes 32 HMACs and reads the clock. */
+static system_temp_code_t system_check_temp_code(const char *p_code)
+{
+    switch (temp_code_check(p_code))
+    {
+        case TEMP_CODE_OK:
+            return SYSTEM_TEMP_CODE_OK;
+        case TEMP_CODE_NO_TIME:
+            return SYSTEM_TEMP_CODE_NO_TIME;
+        default:
+            return SYSTEM_TEMP_CODE_WRONG;
     }
 }
 

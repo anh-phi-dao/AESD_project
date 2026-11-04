@@ -26,6 +26,7 @@
 #define DEVICE_CONFIG_KEY_MQTT_USERNAME    "mqtt_user"
 #define DEVICE_CONFIG_KEY_MQTT_PASSWORD    "mqtt_pass"
 #define DEVICE_CONFIG_KEY_MQTT_CA_PEM      "mqtt_ca"
+#define DEVICE_CONFIG_KEY_TEMP_SECRET      "tmp_secret" /* Optional: without it, no temporary guest codes. */
 
 /* Buffer sizes including the terminator. */
 #define DEVICE_CONFIG_WIFI_SSID_SIZE       33U
@@ -37,5 +38,6 @@
 
 /* NVS strings are limited to 4000 bytes, which fits one PEM CA certificate. */
 #define DEVICE_CONFIG_MQTT_CA_MAX_SIZE     4000U
+#define DEVICE_CONFIG_TEMP_SECRET_SIZE     33U /* 32 hex characters (docs/temp_code.md). */
 
 #endif /* DEVICE_CONFIG_CONFIG_H_ */

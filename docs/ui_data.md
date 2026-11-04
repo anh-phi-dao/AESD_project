@@ -51,6 +51,8 @@ Cập nhật từ task khác phải giữ `ui_service_lock` / `ui_service_unlock
 | Ở `Home` nhấn (không giữ) phím số | `Input` (`ENTER PIN`), có sẵn số vừa nhấn | |
 | PIN / thẻ đúng | `Home`, `ui_HomeState` = `UNLOCKED` trong 5 s | SUCCESS `Welcome` / `Door unlocked` |
 | PIN sai | `Input`, ô trống | ERROR `Authentication failed` / `4 tries left` |
+| 8 số không phải PIN nhưng là mã tạm còn hạn ([temp_code.md](temp_code.md)) | `Home`, mở cửa, người là `Temp code` | SUCCESS `Welcome` / `Door unlocked` |
+| Mã tạm khi khóa chưa có giờ | `Input`, ô trống, tính một lần sai | ERROR `Temp code not checked` / `Clock not set yet, 4 tries left` |
 | Thẻ / vân tay lạ (ở `Home` hoặc `Input`) | Giữ nguyên | ERROR `Authentication failed` / `Unknown card, 3 tries left` |
 | Sai 5 lần **một** phương thức (PIN, thẻ và vân tay đếm riêng) | `Home`; chỉ phương thức đó bị khóa, hai cái kia vẫn mở cửa được | ERROR `PIN locked` / `Too many tries, locked 30 s` |
 | Dùng phương thức đang bị khóa (nhấn số, quẹt thẻ, đặt ngón) | Giữ nguyên, kể cả thẻ / ngón đã đăng ký | ERROR `Cards locked` / `Try again in 4:12` |
@@ -135,21 +137,22 @@ Giữ một phím ở chỗ phím đó không có lệnh giữ (bảng dưới) 
 |---|---|
 | `app/common/keypad_task.c` | Quét keypad, phân biệt nhấn và giữ 3 s, gọi `system_control_key(key, hold)` |
 | `app/common/rfid_task.c` | Đọc thẻ PN532, gọi `system_control_card(uid, len)` |
-| `app/common/fingerprint_task.c` | Vân tay AS608 (UART1, TX IO9, RX IO8). Ở `Home` / `Input` / khóa: nhận dạng, gọi `system_control_finger(user)`. Ở `ADD FINGERPRINT`: quét 3 lần (lần 1 và 2 ghép thành mẫu lưu ở trang = user ID, lần 3 phải khớp mẫu đó), gọi `system_control_finger_scanned()` |
+| `app/common/fingerprint_task.c` | Vân tay AS608 (UART1, TX IO9, RX IO8). Ở `Home` / `Input` / khóa: nhận dạng, gọi `system_control_finger(user)`. Ở `ADD FINGERPRINT`: quét 3 lần (lần 1 và 2 ghép thành mẫu lưu ở trang = số ô + 1, lần 3 phải khớp mẫu đó), gọi `system_control_finger_scanned()` |
 | `app/system_controller/system_control.c` | Toàn bộ logic: màn hình đang ở đâu, phím làm gì, kiểm tra PIN / thẻ / admin, khóa, thời gian chờ |
 | `app/common/system_task.c` | Gọi `system_control_tick()` mỗi 100 ms; nối kết quả vào event log (web thấy được), cửa và âm thanh |
 | `app/common/ui_flow_task.c` | Chỉ hiển thị: đọc `system_control_get_view()` mỗi 100 ms rồi vẽ màn hình và popup |
+| `app/common/storage_task.c` | Mỗi 500 ms so `credentials_seq`, đổi thì ghi `CREDS.TXT` |
+| `app/common/battery_task.c` | Đọc INA219 mỗi 1 s, tính % pin (`app/power_manager`), gọi `ui_flow_set_battery()`, gửi cảnh báo và topic `battery` |
+| `device/solenoid_lock` | IO38 HIGH = mở; `system_on_door()` gọi `solenoid_lock_unlock()` / `solenoid_lock_lock()`, driver tự khóa sau 6 s |
 | `app/common/voice_task.c` | Tin nhắn thoại: ghi từ mic INMP441 vào thẻ SD, phát ra loa NS4168, nhận tin của chủ nhà từ web (`voice/in`), gửi tin của khách lên web (`voice/out`, `voice/index`). Xem `docs/mqtt_protocol.md` mục 4 |
 
 Thời gian, số lần thử, PIN và tài khoản admin mặc định nằm trong `system_control.h`: PIN của User 1 là `1234567`, admin
 là ID `1` / mật khẩu `1234`. PIN được kiểm tra ngay trên thiết bị. Lên mạng chỉ có kết quả đúng/sai, không có mã.
 
-**Chưa có phần cứng / chưa làm:**
-- Solenoid: `system_on_door()` mới chỉ ghi log.
-- Tin nhắn thoại cần thẻ SD. Không có thẻ thì ghi âm báo `Not available`, khóa vẫn chạy bình thường.
+**Lưu ý:**
+- Tin nhắn thoại cần thẻ SD. Không có thẻ thì ghi âm báo `No SD card for messages`, khóa vẫn chạy bình thường.
 - Trong lúc ghi âm và phát tin, phím không kêu bíp (loa và mic dùng chung bus I2S).
-
-Solenoid có đánh dấu `TODO(lock_service)` trong code.
+- `boot_pcf7584()` còn `while(1)` khi không thấy PCF8574: các bước khởi động sau (gồm đo pin) không chạy.
 
 ## 5. Người dùng và dữ liệu
 
@@ -166,35 +169,18 @@ FINGER,0,1,6        # ô 0, Dat, Right index
 ```
 File bản 1 (một thẻ / một ngón mỗi user) vẫn đọc được: ngón tay cũ hiện là `Finger`. Lần lưu sau sẽ ghi bản 2.
 
-## 6. Biến pin (cho phần đo pin)
+## 6. Pin
 
-Phần đo pin chưa có. Màn hình chỉ hiển thị một biến; ai làm phần đo pin chỉ cần ghi vào biến này, không cần đụng tới LVGL
-hay `ui_service_lock`.
+Đã làm: `battery_task` (INA219 @0x40 trên header J6, chung bus I2C với PN532) đọc mỗi 1 s, `app/power_manager` tính % bằng
+đếm coulomb + chỉnh theo OCV pack 3S, rồi gọi `ui_flow_set_battery()`. Màn hình chỉ đọc biến này:
 
 | Hàm (`app/common/ui_flow_task.h`) | Ý nghĩa |
 |---|---|
 | `ui_flow_set_battery(uint8_t percent)` | Đặt % pin, `0`–`100` (lớn hơn 100 tính là 100). `UI_FLOW_BATTERY_UNKNOWN` (`0xFF`): chưa đo được |
-| `ui_flow_get_battery()` | Đọc lại giá trị vừa đặt (ví dụ để gửi lên web) |
+| `ui_flow_get_battery()` | Đọc lại giá trị vừa đặt |
 
-- Gọi từ task nào cũng được, lúc nào cũng được, không cần khóa. Màn hình vẽ lại trong vòng `UI_FLOW_TICK_MS` (100 ms),
-  chỉ khi giá trị đổi.
-- Chưa ai gọi thì thanh trên cùng hiện icon pin rỗng và `--%`.
-- Giá trị nên được lọc trước khi đặt (trung bình vài lần đọc ADC), để icon không nhảy qua lại ở ngưỡng.
-- Pin yếu: ngoài việc đặt %, phần đo pin tự gửi cảnh báo `EVENT_LOG_ALERT_LOW_BATTERY` (`low_battery`, web hiện
-  "Pin yếu"), mỗi lần xuống dưới ngưỡng chỉ gửi một lần.
-
-Ví dụ một task đo pin:
-
-```c
-#include "ui_flow_task.h"
-
-static void battery_task(void *pvParameter)
-{
-    while (1)
-    {
-        const uint8_t percent = battery_read_percent(); /* Phần của người làm đo pin: ADC -> %. */
-        ui_flow_set_battery(percent);
-        vTaskDelay(pdMS_TO_TICKS(10000));
-    }
-}
-```
+- Gọi từ task nào cũng được, không cần khóa. Màn hình vẽ lại trong vòng `UI_FLOW_TICK_MS` (100 ms), chỉ khi giá trị đổi.
+- Không đọc được INA219 thì thanh trên cùng hiện icon pin rỗng và `--%`.
+- Cảnh báo `low_battery` (≤ 20 %, warning; ≤ 10 %, critical) chỉ gửi khi lên mức mới; về bình thường khi ≥ 25 %.
+  Dưới 9.3 V gửi `power_lost`. Topic `battery` (retained): xem `docs/mqtt_protocol.md`.
+- Giới hạn: sạc pack ngoài mạch rồi lắp lại thì % sai (boot tin giá trị NVS cũ). Xem `docs/system_design.md` mục 13.

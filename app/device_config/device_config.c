@@ -26,6 +26,7 @@
 
 static app_err_t device_config_read_str(nvs_handle_t handle, const char *const p_key, char *const p_buf, size_t size);
 static app_err_t device_config_read_ca(nvs_handle_t handle, device_config_t *const p_cfg);
+static void      device_config_read_temp_secret(nvs_handle_t handle, device_config_t *const p_cfg);
 static app_err_t device_config_read_all(nvs_handle_t handle, device_config_t *const p_cfg);
 
 /***********************************************************************************************************************
@@ -119,7 +120,7 @@ void device_config_release(device_config_t *const p_cfg)
  **********************************************************************************************************************/
 
 /***********************************************************************************************************************
- * Reads the required strings and the optional CA certificate.
+ * Reads the required strings, the optional CA certificate and the optional secret of temporary codes.
  **********************************************************************************************************************/
 static app_err_t device_config_read_all(nvs_handle_t handle, device_config_t *const p_cfg)
 {
@@ -146,7 +147,27 @@ static app_err_t device_config_read_all(nvs_handle_t handle, device_config_t *co
         }
     }
 
+    device_config_read_temp_secret(handle, p_cfg);
     return device_config_read_ca(handle, p_cfg);
+}
+
+/***********************************************************************************************************************
+ * Reads the optional secret of temporary guest codes. Missing or unreadable: codes stay off, the rest still works.
+ **********************************************************************************************************************/
+static void device_config_read_temp_secret(nvs_handle_t handle, device_config_t *const p_cfg)
+{
+    size_t          len = sizeof(p_cfg->temp_secret);
+    const esp_err_t ret = nvs_get_str(handle, DEVICE_CONFIG_KEY_TEMP_SECRET, p_cfg->temp_secret, &len);
+
+    if (ret != ESP_OK)
+    {
+        if (ret != ESP_ERR_NVS_NOT_FOUND)
+        {
+            ESP_LOGW(DEVICE_CONFIG_TAG, "Cannot read \"%s\" (%s), temporary codes off", DEVICE_CONFIG_KEY_TEMP_SECRET,
+                     esp_err_to_name(ret));
+        }
+        p_cfg->temp_secret[0] = '\0';
+    }
 }
 
 /***********************************************************************************************************************

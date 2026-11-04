@@ -26,6 +26,7 @@ typedef struct st_device_config
     char  mqtt_username[DEVICE_CONFIG_MQTT_USERNAME_SIZE];
     char  mqtt_password[DEVICE_CONFIG_MQTT_PASSWORD_SIZE];
     char *p_mqtt_ca_pem; /* Optional; NULL means "verify with the certificate bundle". Heap, freed by release. */
+    char  temp_secret[DEVICE_CONFIG_TEMP_SECRET_SIZE]; /* Optional; "" when temporary guest codes are off. */
 } device_config_t;
 
 /***********************************************************************************************************************

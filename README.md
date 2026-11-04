@@ -11,6 +11,8 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 
 ## Trạng thái hiện tại
 
+Cập nhật theo `master` d0179fe (04/11/2026). Thiết kế đầy đủ: [docs/system_design.md](docs/system_design.md), sơ đồ: `docs/LOCK_DOOR_rev4.drawio`.
+
 | Phần | Trạng thái |
 | WiFi + đồng bộ giờ SNTP (`app/network_manager`) | Xong, em đã chạy thử trên module |
 | MQTT qua TLS (`middleware/mqtt_client`) | Xong, đã kết nối EMQX Cloud Serverless |
@@ -19,11 +21,16 @@ xem trạng thái, lịch sử ra vào, cảnh báo và tin nhắn thoại qua M
 | Lịch sử gần nhất (`app/event_log`) | Xong: 20 sự kiện + 10 cảnh báo, lưu NVS, giữ qua khởi động lại. Log đầy đủ chờ thẻ SD |
 | Cầu nối MQTT (`app/remote_service`) | Xong: `event`, `alert`, `recent` (retained, xem được khi khóa offline), trả lời `history/req` |
 | Giả lập phần cứng (`app/door_sim`) | Xong, **chỉ cho board dev, tắt mặc định**: nút BOOT + lệnh `sim` trên serial |
+| Mã tạm cho khách (`app/temp_code`, web) | Xong: web tạo mã 8 số dùng 30 phút, khóa kiểm tra offline, không qua MQTT ([docs/temp_code.md](docs/temp_code.md)) |
 | Telegram bot (`telegram/`) | Xong: chương trình Python riêng nghe MQTT, gửi cảnh báo, ai mở cửa và tin thoại của khách; chỉ gửi, không nhận lệnh |
-| Lưu log ra vào lên thẻ SD | Chưa làm |
-| Tin nhắn thoại trên firmware (INMP441, loa) | Chưa làm; web đã sẵn sàng |
+| Lưu log ra vào lên thẻ SD | Chưa làm (NVS giữ 20 sự kiện + 10 cảnh báo gần nhất) |
+| Tin nhắn thoại trên firmware (`voice_task`, INMP441, NS4168) | Xong: khách giữ `*` ghi ≤ 15 s → `voice/out` (10 tin G0..G9 trên SD); chủ nhà ghi tại cửa hoặc gửi từ web (`voice/in`, 5 tin O0..O4), khách giữ `#` để nghe |
 | Màn hình TFT ILI9341 + LVGL (`device/ili9341_tft_display`, `middleware/lvgl_port`, `app/ui_service`) | Đã có giao diện SquareLine (một project: 6 màn hình + popup, gồm cả admin). Phím chạy theo màn hình: `system_control` quyết định (PIN, thẻ, khóa tạm, admin, ghi âm), `ui_flow_task` chỉ hiển thị ([docs/ui_data.md](docs/ui_data.md)) |
-| Solenoid, NFC (PN532), audio | Chưa làm |
+| Solenoid (`device/solenoid_lock`) | Xong: IO38, fail-secure, mở 5 s, guard 6 s trong driver |
+| NFC PN532 (`rfid_task`) | Xong: đọc UID qua I2C, thêm / xóa thẻ trong menu admin (quét 3 lần). Còn đoạn dump NTAG để debug |
+| Vân tay AS608 (`fingerprint_task`) | Xong: nhận dạng, thêm / xóa trong menu admin (quét 3 lần), 40 ô |
+| Âm thanh (`audio_task`) | Xong: bíp phím 2.5 kHz, chung bus I2S với mic |
+| Lưu credential (`storage_task`) | Xong: `CREDS.TXT` bản 2 trên thẻ SD (ghi TMP rồi đổi tên, giữ BAK) |
 | Đo pin (`device/ina219`, `app/power_manager`, `battery_task`) | Xong: INA219 đọc mỗi 1 s, đếm coulomb + chỉnh theo OCV, lưu NVS; cảnh báo `low_battery`/`power_lost`, % trên thanh trên màn hình, topic `battery` (retained) lên web |
 
 ---
@@ -36,6 +43,7 @@ AESD_project/
 ├── app/
 │   ├── common/          Task chung: network_task, keypad_task, ui_task (khởi động màn hình), ui_flow_task (màn hình theo system_control), system_task, rfid_task, battery_task
 │   ├── power_manager/   NEW  Tính % pin (đếm coulomb, OCV), mức normal/low/critical
+│   ├── temp_code/       NEW  Kiểm tra mã tạm cho khách (HMAC theo phút, offline)
 │   ├── device_config/ NEW Đọc credential từ partition "devcfg"
 │   ├── network_manager/  NEW  WiFi STA, tự kết nối lại, SNTP, chờ "có IP + đúng giờ"
 │   ├── event_log/       NEW  Gán id, giữ sự kiện/cảnh báo gần nhất trong NVS, mã phiên gen
@@ -61,7 +69,8 @@ AESD_project/
 │   ├── mqtt_protocol.md     NEW  Topic, payload JSON, định dạng chunk thoại (hợp đồng firmware ↔ web)
 │   ├── provisioning.md      NEW  Nạp credential, xử lý lỗi, chuẩn bị sản phẩm
 │   ├── tft_ui.md            NEW  Màn hình TFT, quy trình SquareLine Studio, sửa lỗi
-│   └── ui_data.md           NEW  Dữ liệu firmware cập nhật trên từng màn hình
+│   ├── ui_data.md           NEW  Dữ liệu firmware cập nhật trên từng màn hình
+│   └── temp_code.md         NEW  Mã tạm cho khách: cài đặt, thuật toán, giới hạn
 ├── scripts/
 │   ├── provision_device.py  NEW  Ghi credential vào board
 │   └── ...                        format.sh, generate_config.py (có từ trước)

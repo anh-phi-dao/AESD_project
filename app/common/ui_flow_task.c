@@ -708,6 +708,10 @@ static void ui_flow_notice(const system_view_t *const p_view)
         case SYSTEM_NOTICE_SCAN_BAD:
             ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Finger not read", "Place it again");
             break;
+        case SYSTEM_NOTICE_TEMP_NO_TIME:
+            (void)snprintf(detail, sizeof(detail), "Clock not set yet, %u %s left", value, (1U == value) ? "try" : "tries");
+            ui_flow_popup(UI_SERVICE_POPUP_ERROR, "Temp code not checked", detail);
+            break;
         case SYSTEM_NOTICE_LOCKED:
         {
             /* Only that method is locked; the popup says which, and how long, so the others are tried instead. */

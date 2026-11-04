@@ -11,6 +11,7 @@
 #include "mqtt_conn.h"
 #include "network_manager.h"
 #include "remote_service.h"
+#include "temp_code.h"
 #include "voice_task.h"
 
 /***********************************************************************************************************************
@@ -108,6 +109,20 @@ void network_task(void *pvParameter)
         ESP_LOGW(NETWORK_TAG, "Network disabled: no device credentials (error %d). Lock keeps working offline.", ret);
         vTaskDelete(NULL);
         return;
+    }
+
+    /* Temporary guest codes need only this secret and the clock (SNTP below), never the broker. */
+    if ('\0' == s_device_cfg.temp_secret[0])
+    {
+        ESP_LOGI(NETWORK_TAG, "No tmp_secret: temporary guest codes off");
+    }
+    else if (APP_SUCCESS != temp_code_set_secret(s_device_cfg.temp_secret))
+    {
+        ESP_LOGW(NETWORK_TAG, "tmp_secret is not 32 hex characters: temporary guest codes off");
+    }
+    else
+    {
+        ESP_LOGI(NETWORK_TAG, "Temporary guest codes on");
     }
 
     (void)snprintf(s_hostname, sizeof(s_hostname), "smartlock-%.22s", s_device_cfg.device_id);

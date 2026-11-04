@@ -120,6 +120,13 @@ tr.bad td:last-child { color: var(--bad); }
 tr.ok td:last-child { color: var(--ok); }
 #history-more { margin-top: 12px; }
 
+.temp-setup { display: grid; gap: 10px; }
+.temp-setup input { font-family: ui-monospace, monospace; }
+.temp-ready { display: grid; gap: 10px; justify-items: start; }
+.temp-result { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.temp-result .hint { flex-basis: 100%; }
+.temp-code { font: 700 2rem/1.2 ui-monospace, monospace; letter-spacing: 0.08em; }
+
 .voice-send { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 12px; }
 .voice-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 6px; }
 .voice-actions .hint { margin-right: auto; }

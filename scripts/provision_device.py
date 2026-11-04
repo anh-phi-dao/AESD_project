@@ -11,6 +11,7 @@ Run it from an ESP-IDF shell (it uses nvs_partition_gen.py and parttool.py):
     python scripts/provision_device.py                    # config/device_config.csv, port from scripts/config.json
     python scripts/provision_device.py -p COM7 -c config/door02.csv
     python scripts/provision_device.py --no-flash -o devcfg.bin   # factory: build the image only
+    python scripts/provision_device.py --new-temp-secret  # add a secret for temporary guest codes, then flash
 
 See docs/provisioning.md.
 """
@@ -20,6 +21,7 @@ import csv
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -41,6 +43,8 @@ REQUIRED = {
     "mqtt_pass": (1, 128),
 }
 OPTIONAL_FILES = {"mqtt_ca": 3999}
+# Optional strings and their format. tmp_secret: temporary guest codes (docs/temp_code.md), 32 hex characters.
+OPTIONAL_STRINGS = {"tmp_secret": r"[0-9a-fA-F]{32}"}
 # Values from config/device_config.csv.example that must be replaced before flashing.
 PLACEHOLDERS = {"YourWifiName", "YourWifiPassword", "device-broker-password"}
 PLACEHOLDER_HOST = "example.com"
@@ -99,6 +103,10 @@ def load_and_check(csv_path):
             if not lo <= len(value.encode("utf-8")) <= hi:
                 fail(f"'{key}' must be {lo}..{hi} bytes")
             values[key] = value
+        elif key in OPTIONAL_STRINGS and typ == "data":
+            if not re.fullmatch(OPTIONAL_STRINGS[key], value):
+                fail(f"'{key}' has the wrong format (see docs/temp_code.md)")
+            values[key] = value
         elif key in OPTIONAL_FILES and typ == "file":
             path = value if os.path.isabs(value) else os.path.join(base, value)
             if not os.path.isfile(path):
@@ -122,7 +130,25 @@ def load_and_check(csv_path):
         print("[!] Warning: mqtt_uri is not mqtts://; credentials will travel in plain text.")
 
     print(f"[*] Device '{values['device_id']}', Wi-Fi '{values['wifi_ssid']}', broker {values['mqtt_uri']}")
+    print(f"[*] Temporary guest codes {'on' if 'tmp_secret' in values else 'off (no tmp_secret)'}")
     return out
+
+
+def new_temp_secret(csv_path):
+    """Puts a fresh tmp_secret in the CSV (replacing an old one) and prints it for the web page."""
+    if not os.path.isfile(csv_path):
+        fail(f"'{csv_path}' not found. Copy config/device_config.csv.example and fill it in.")
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        rows = [r for r in csv.DictReader(f) if (r.get("key") or "").strip() != "tmp_secret"]
+    secret = secrets.token_hex(16)
+    rows.append({"key": "tmp_secret", "type": "data", "encoding": "string", "value": secret})
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["key", "type", "encoding", "value"], extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"[+] New tmp_secret written to {csv_path}:")
+    print(f"        {secret}")
+    print("    Paste it once in the web page, card 'Mã tạm cho khách'. Codes made with an older secret stop working.")
 
 
 def main():
@@ -131,11 +157,15 @@ def main():
     parser.add_argument("-p", "--port", help="Serial port (default: scripts/config.json)")
     parser.add_argument("-o", "--output", help="Also keep the generated image at this path (contains secrets)")
     parser.add_argument("--no-flash", action="store_true", help="Only generate the image")
+    parser.add_argument("--new-temp-secret", action="store_true",
+                        help="Put a new secret for temporary guest codes in the CSV first")
     args = parser.parse_args()
 
     if args.no_flash and not args.output:
         fail("--no-flash needs --output")
 
+    if args.new_temp_secret:
+        new_temp_secret(args.csv)
     rows = load_and_check(args.csv)
     size = partition_size()
 

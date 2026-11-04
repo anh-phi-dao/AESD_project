@@ -789,6 +789,10 @@ const char *system_control_user_name(uint8_t user)
         }
         s_built = true;
     }
+    if (SYSTEM_USER_TEMP == user)
+    {
+        return "Temp code"; /* ASCII: the screen fonts have no Vietnamese; the web and Telegram translate it. */
+    }
     if ((user >= 1U) && (user <= (sizeof(s_user_names) / sizeof(s_user_names[0]))))
     {
         return s_user_names[user - 1U];
@@ -1116,20 +1120,36 @@ static void system_admin_login_key(char key)
     system_entry_edit(key);
 }
 
-/* Checked here, locally; nothing about a PIN leaves the device except granted / denied. */
+/* Checked here, locally; nothing about a PIN leaves the device except granted / denied. An 8-digit entry that is no PIN
+ * may be a temporary guest code made on the web page: it opens as SYSTEM_USER_TEMP (docs/temp_code.md). */
 static void system_check_pin(system_effects_t *const p_fx)
 {
-    const uint8_t user = system_find_pin(s_sys.entry);
+    uint8_t            user = system_find_pin(s_sys.entry);
+    system_temp_code_t temp = SYSTEM_TEMP_CODE_WRONG;
 
+    if ((0U == user) && (SYSTEM_TEMP_CODE_LEN == s_sys.entry_len) && (NULL != s_sys.hooks.check_temp_code))
+    {
+        temp = s_sys.hooks.check_temp_code(s_sys.entry);
+        if (SYSTEM_TEMP_CODE_OK == temp)
+        {
+            user = SYSTEM_USER_TEMP;
+        }
+    }
     system_entry_clear();
     if (0U != user)
     {
-        ESP_LOGI(SYSTEM_TAG, "PIN accepted, user %u", user);
+        ESP_LOGI(SYSTEM_TAG, "%s accepted, user %u", (SYSTEM_USER_TEMP == user) ? "Temporary code" : "PIN", user);
         system_grant(SYSTEM_METHOD_PIN, user, p_fx);
         return;
     }
 
+    /* Counted as wrong even without a clock: otherwise 8-digit guesses of real PINs would be free while it is unset. */
     system_deny(SYSTEM_METHOD_PIN, p_fx);
+    if ((SYSTEM_TEMP_CODE_NO_TIME == temp) && (SYSTEM_NOTICE_PIN_WRONG == s_sys.notice))
+    {
+        ESP_LOGW(SYSTEM_TAG, "Temporary code not checked: the clock is not set");
+        system_notify(SYSTEM_NOTICE_TEMP_NO_TIME, s_sys.notice_value);
+    }
 }
 
 /* A wrong PIN, card or finger. Each method counts its own: too many locks only that method. */

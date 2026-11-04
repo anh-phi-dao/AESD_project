@@ -89,6 +89,9 @@ class TextTest(unittest.TestCase):
         self.assertIsNone(tb.format_access({"id": 4, "ts": self.TS, "method": "pin", "result": "denied"}, "d", 7))
         self.assertTrue(tb.format_access({"id": 5, "ts": self.TS, "method": "nfc", "result": "granted"}, "d", 7)
                         .startswith("🔓 Ai đó đã mở cửa bằng thẻ NFC"))
+        self.assertTrue(tb.format_access({"id": 6, "ts": self.TS, "method": "pin", "result": "granted",
+                                          "user": "Temp code"}, "d", 7)
+                        .startswith("🔓 Khách (mã tạm) đã mở cửa bằng mã PIN"))
 
 
 class StateTest(unittest.TestCase):

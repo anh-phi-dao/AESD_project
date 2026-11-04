@@ -14,7 +14,8 @@ set(APP_REQUIRES auth_manager
                  remote_service
                  ui_service
                  door_sim
-                 power_manager)
+                 power_manager
+                 temp_code)
 idf_component_register(SRCS "voice_task.c" "system_task.c" 
                             "rfid_task.c" 
                             "network_task.c" 

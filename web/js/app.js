@@ -1,10 +1,13 @@
 import config from '../config.js';
 import { LockClient } from './lock-client.js';
 import { VoiceRecorder, VoiceStore } from './voice.js';
+import { makeCode, parseSecret, selfTest } from './temp-code.js';
 
 const STORE_KEY = 'smartlock.login';
 // Last alert the user acknowledged, per lock: { deviceId, gen, id }. Only ids are stored, never alert content.
 const SEEN_KEY = 'smartlock.seenAlert';
+// Secret of the temporary guest codes, per lock: { secret }. Plain in this browser only (a study project).
+const TEMP_KEY = 'smartlock.tempSecret.';
 const LIVE_MAX = 30;
 const ALERT_MAX = 30;
 const TITLE = document.title;
@@ -50,6 +53,7 @@ function el(tag, props = {}, ...children) {
 
 const fmtTime = (ts) => new Date(ts * 1000).toLocaleString('vi-VN');
 const methodLabel = (m) => METHOD_LABEL[m] ?? m;
+const userLabel = (u) => (u === 'Temp code' ? 'Mã tạm' : u); // the lock's name for a temporary guest code
 const resultLabel = (r) => (r === 'granted' ? 'Mở thành công' : 'Bị từ chối');
 const emptyItem = (text) => el('li', { className: 'empty', textContent: text });
 
@@ -110,6 +114,7 @@ form.addEventListener('submit', async (e) => {
     saveJson(STORE_KEY, f.remember.checked ? { url: opts.url, deviceId: opts.deviceId, username: opts.username } : null);
     f.password.value = '';
     showDashboard(true);
+    showTempCard();
     loadHistory(true);
   } catch (err) {
     client = null;
@@ -192,7 +197,7 @@ function wireClient(c) {
   });
   c.addEventListener('event', (e) => {
     const x = e.detail.entry;
-    const who = x.user ?? 'Không xác định';
+    const who = x.user ? userLabel(x.user) : 'Không xác định';
     prepend(
       $('live'),
       el('li', { className: x.result === 'granted' ? 'ok' : 'bad' },
@@ -354,12 +359,70 @@ function onRecent({ gen: newGen, events, alerts }) {
   }
 }
 
+// ---------- temporary guest codes ----------
+// Made here from the shared secret; the lock checks them offline. Nothing goes over MQTT.
+
+const tempSecret = () => parseSecret(loadJson(TEMP_KEY + deviceId)?.secret);
+
+function showTempCard() {
+  const ready = !!tempSecret();
+  $('temp-setup').hidden = ready;
+  $('temp-ready').hidden = !ready;
+  $('temp-result').hidden = true;
+  $('temp-error').textContent = '';
+}
+
+$('temp-setup').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const value = e.target.elements.secret.value.trim().toLowerCase();
+  if (!parseSecret(value)) {
+    $('temp-error').textContent = 'Bí mật phải gồm đúng 32 ký tự 0-9, a-f.';
+    return;
+  }
+  saveJson(TEMP_KEY + deviceId, { secret: value });
+  e.target.reset();
+  showTempCard();
+});
+
+$('temp-make').addEventListener('click', async () => {
+  const key = tempSecret();
+  if (!key) return showTempCard();
+  try {
+    if (!(await selfTest())) throw new Error('Trình duyệt này tính sai mã, hãy dùng trình duyệt khác.');
+    const { code, expiresAt } = await makeCode(key);
+    $('temp-code').textContent = `${code.slice(0, 4)} ${code.slice(4)}`;
+    $('temp-code').dataset.code = code;
+    const until = new Date(expiresAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    $('temp-until').textContent = `Dùng được đến ${until}. Khóa cần đúng giờ (đã kết nối mạng sau khi bật).`;
+    $('temp-result').hidden = false;
+    $('temp-error').textContent = '';
+  } catch (err) {
+    $('temp-error').textContent = err.message;
+  }
+});
+
+$('temp-copy').addEventListener('click', async (e) => {
+  try {
+    await navigator.clipboard.writeText($('temp-code').dataset.code ?? '');
+    e.target.textContent = 'Đã chép';
+    setTimeout(() => { e.target.textContent = 'Sao chép'; }, 2000);
+  } catch {
+    $('temp-error').textContent = 'Không chép được, hãy đọc mã ở trên.';
+  }
+});
+
+$('temp-forget').addEventListener('click', () => {
+  if (!confirm('Xóa bí mật mã tạm khỏi máy này? Mã đã tạo vẫn dùng được tới khi hết hạn.')) return;
+  saveJson(TEMP_KEY + deviceId, null);
+  showTempCard();
+});
+
 // ---------- history ----------
 
 function historyRow(x) {
   return el('tr', { className: x.result === 'granted' ? 'ok' : 'bad' },
     el('td', { textContent: fmtTime(x.ts) }),
-    el('td', { textContent: x.user ?? '—' }),
+    el('td', { textContent: x.user ? userLabel(x.user) : '—' }),
     el('td', { textContent: methodLabel(x.method) }),
     el('td', { textContent: resultLabel(x.result) }));
 }

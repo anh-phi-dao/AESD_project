@@ -37,6 +37,8 @@
 #define SYSTEM_ADMIN_LOCKOUT_MS 60000U     /* Admin login: never for good, it is what ends the other lockouts. */
 #define SYSTEM_LOCK_FOREVER     UINT32_MAX /* Seconds left of a lockout that only an admin login ends. */
 #define SYSTEM_USER_COUNT      20U /* User IDs 1..20. A user has one PIN, and any number of cards and fingers. */
+#define SYSTEM_USER_TEMP       (SYSTEM_USER_COUNT + 1U) /* Who opened with a temporary guest code: "Temp code". */
+#define SYSTEM_TEMP_CODE_LEN   8U /* An entry this long that is no PIN is checked as a temporary guest code. */
 #define SYSTEM_CARD_SLOTS      20U /* Cards stored, whoever they belong to. */
 #define SYSTEM_FINGER_SLOTS    40U /* Fingers stored; slot n is page n + 1 in the sensor. */
 #define SYSTEM_FINGER_COUNT    10U /* Left thumb .. right little: see system_control_finger_name(). */
@@ -166,6 +168,7 @@ typedef enum e_system_notice
     SYSTEM_NOTICE_SCAN_BAD,      /* The sensor could not read the finger: scan again. */
     SYSTEM_NOTICE_LOCKED, /* value: system_lock_target_t, value2: 1 it just locked, 0 it was used while locked.
                            * system_view_t.notice_lock_s: seconds left, or SYSTEM_LOCK_FOREVER. */
+    SYSTEM_NOTICE_TEMP_NO_TIME, /* A temporary code could not be checked: the clock is not set. value: tries left. */
 } system_notice_t;
 
 /* Everything the screen needs, copied by system_control_get_view(). Never holds a PIN or password: only lengths. */
@@ -218,6 +221,14 @@ typedef enum e_system_lock_target
     SYSTEM_LOCK_COUNT
 } system_lock_target_t;
 
+/* Answer of check_temp_code. */
+typedef enum e_system_temp_code
+{
+    SYSTEM_TEMP_CODE_WRONG = 0, /* Not valid now, or temporary codes are off. */
+    SYSTEM_TEMP_CODE_OK,
+    SYSTEM_TEMP_CODE_NO_TIME, /* The clock is not set yet: no code can be checked. */
+} system_temp_code_t;
+
 typedef enum e_system_alert
 {
     SYSTEM_ALERT_LOCKOUT = 0, /* on_alert target and lock_s say which one and for how long. */
@@ -257,6 +268,9 @@ typedef struct st_system_control_hooks
     void (*on_play_stop)(void);
     void (*on_message_delete)(uint8_t slot); /* Delete this message for guests. */
     void (*on_finger_delete)(uint8_t page);  /* Delete this template in the sensor. */
+    /* Unlike the others, called under the lock, for a SYSTEM_TEMP_CODE_LEN entry that is no PIN: must be quick and
+     * must not call system_control. NULL: no temporary codes. */
+    system_temp_code_t (*check_temp_code)(const char *p_code);
 } system_control_hooks_t;
 
 /*******************************************************************************************************************
@@ -313,7 +327,8 @@ void system_control_play_done(uint8_t token, bool ok);
 /* Copy of the state for the screen. False when the lock could not be taken in time. */
 bool system_control_get_view(system_view_t *const p_view);
 
-/* "Dat", "Phi", "Tuan", then "User 4" ... "User 20". Valid until the next call for a numbered user. */
+/* "Dat", "Phi", "Tuan", then "User 4" ... "User 20", and "Temp code" for SYSTEM_USER_TEMP. Valid until the next call
+ * for a numbered user. */
 const char *system_control_user_name(uint8_t user);
 
 /* "Left thumb" .. "Right little", or "Finger" for SYSTEM_FINGER_UNKNOWN. */
